@@ -1,30 +1,52 @@
 # 🛡️ Tangerine: Resilience Rewired — Financial Resilience Engine
 ### Sheridan Datathon 2026 · Tangerine Track (November 7–8, 2026)
 
-[![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12%20%7C%203.14-blue.svg)](https://www.python.org/)
+[![Python](https://img.shields.io/badge/Python-3.11%20%7C%203.12%20%7C%203.13-blue.svg)](https://www.python.org/)
+[![Streamlit](https://img.shields.io/badge/Streamlit-1.67.0-FF4B4B.svg)](https://streamlit.io/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-[![Status](https://img.shields.io/badge/Status-Phase%202%20Validated-success.svg)]()
+[![Status](https://img.shields.io/badge/Build-Production%20Ready-success.svg)]()
 
 > **Mission:** Build an explainable, dynamic Financial Resilience Engine that understands any retail banking customer by account ID, simulates multidimensional economic shocks (job loss with EI, inflation, surprise repairs), and generates actionable, personalized resilience plans.
 
 ---
 
-## 📑 Project Navigation & Documentation
+## 🚀 Live Demo & Quickstart
 
-- 🔍 **[Phase 2: 10 Hidden Behavioral Intelligence Discoveries](reports/phase2_hidden_patterns_discovery.md)** *(NEW)*
-- 📊 **[Phase 1: Full Data Intelligence & System Audit Report](reports/phase1_data_intelligence_audit.md)**
-- 📁 **[Discovery & Verification Scripts](src/)**
-  - [`src/discovery/run_discoveries.py`](src/discovery/run_discoveries.py): Automated reproduction of all 10 discoveries & p-values.
-  - [`src/audit/`](src/audit/): Phase 1 accounting and schema verification suite.
-- 📖 **[Track Challenge Guidelines](tangerine/README.md)**
+The application runs locally with zero external network dependencies (local fallback mode):
+
+```bash
+# 1. Clone repository
+git clone https://github.com/ProbotisOP/resilience-rewired-tangerine.git
+cd resilience-rewired-tangerine
+
+# 2. Install dependencies
+pip install -r requirements.txt
+
+# 3. Launch the Streamlit Platform
+streamlit run app.py
+```
+**Access in browser:** `http://localhost:8501`
 
 ---
 
-## 🏆 Headline Discoveries (Phase 2 Scavenger Hunt)
+## ⏱️ Live 5-Minute Judging Runbook
 
-We bypassed generic banking metrics to uncover the **hidden, counterintuitive behavioral patterns** that traditional credit scoring and standard dashboards miss:
+Designed specifically for the Sheridan Datathon 5-minute live judging twist:
 
-| Discovery | What Everyone Assumes | What the Data Proves | Statistical Proof |
+| Time | Segment | What to Demonstrate in the App |
+|:---|:---|:---|
+| **0:00 – 1:00** | **Pitch & Discovery** | Open **🏛️ Portfolio Overview**. Present the **100% Overdraft Determinism** ($21/21$ pre-loan overdrafts defaulted) and **The Spousal Shield** ($0.00\%$ joint defaults vs $14.15\%$ solo defaults). |
+| **1:00 – 3:30** | **Live Judge Twist** | 1. Go to **👤 Customer Explorer**: Enter the judge's chosen `account_id` (or click sample Account `#20111`).<br>2. Show baseline $I, F, S, B, H, P$ and baseline runway.<br>3. Switch to **⚡ Financial Shock Simulator**: Click the judge's scenario (e.g. *Twist 1: Job Loss EI 55%* or *Twist 3: Layoff + Bills +15%*).<br>4. Highlight the **Official Judge Match Runway** and demonstrate how the **Adaptive Survival Runway** extends their life savings by compressing discretionary cash spend.<br>5. View the **Month-by-Month Burn Trajectory**. |
+| **3:30 – 4:30** | **Actionable Plans** | Open **🎯 Recovery & Emergency Planner**: Show the customer's personalized **Emergency Fund Target** ($3 \times F$) and the **Hierarchical Backup Plan** (Austerity cash caps, lease reviews, and loan deferrals). |
+| **4:30 – 5:00** | **Q&A & Methodology** | Open **📖 Methodology** or **💬 AI Strategic Advisor** to answer judge technical and business questions with verified evidence JSON. |
+
+---
+
+## 🏆 Headline Behavioral Discoveries (Phase 2 Scavenger Hunt)
+
+We bypassed generic banking dashboards to uncover the **hidden, counterintuitive behavioral patterns** that traditional credit scoring and standard risk models miss:
+
+| Discovery | What Everyone Assumes | What the Data Actually Proves | Statistical Proof |
 |:---|:---|:---|:---|
 | **1. The Spousal Shield** | Authorized users are just account noise | **0.00% default rate** across all joint accounts vs. **14.15%** for solo accounts. 100% of all defaults are solo accounts! | $\chi^2 = 21.69, p = 3.21 \times 10^{-6}$ |
 | **2. The Statement Canary** | Statement frequency is just an admin setting | Asking for **"statement after each tx"** yields a **23.66% overdraft rate** (vs 5.50%) and **18.75% default rate** (nearly double). | $\chi^2 = 84.49, p = 4.50 \times 10^{-19}$ |
@@ -69,12 +91,59 @@ else:
 
 ---
 
-## 🚀 Reproduction & Verification
+## 🏛️ System Architecture
 
-To reproduce all 10 discoveries and verify statistical test outputs:
+```
+resilience-rewired/
+├── app.py                         # Streamlit multi-screen application entry point
+├── config/
+│   ├── settings.py                # Platform configurations & theme constants
+│   └── scenarios.py               # Competition presets & shock data classes
+├── src/
+│   ├── data/
+│   │   └── local_repository.py    # Cached data ingestion & relational joins
+│   ├── services/
+│   │   ├── baseline_metrics.py    # Deterministic I, F, S, B, H, P calculation
+│   │   ├── shock_engine.py        # Official Judge Match & Adaptive Runway
+│   │   ├── timeline_projection.py # Month-by-month cash burn simulation
+│   │   ├── recovery_planner.py    # Personalized emergency goals & backup plans
+│   │   ├── customer_profile.py    # Archetype classification & demographic context
+│   │   ├── discovery_engine.py    # Pre-loan early warning & scenario distributions
+│   │   └── ai_narrative.py        # Executive narrative service with Gemini/templates
+│   └── ui/
+│       ├── overview.py            # Screen 1: Portfolio Macro Overview
+│       ├── customer_explorer.py   # Screen 2: Customer Explorer & Baselines
+│       ├── shock_simulator.py     # Screen 3: Interactive Shock Twist Simulator
+│       ├── recovery_planner.py    # Screen 4: Goal & Emergency Backup Planner
+│       ├── discoveries.py         # Screen 5: Forensic Early Warning & Discoveries
+│       ├── ai_advisor.py          # Screen 6: AI Strategic Executive Advisor
+│       └── methodology.py         # Screen 7: Methodology & Challenge Formulas
+├── sql/                           # Enterprise Snowflake Data Warehouse Scripts
+│   ├── 01_create_database_and_schemas.sql
+│   ├── 02_stage_and_file_format.sql
+│   ├── 03_create_raw_tables.sql
+│   ├── 04_load_csv_files.sql
+│   ├── 05_create_core_views.sql
+│   ├── 06_create_mart_views.sql
+│   └── 07_create_semantic_view.sql
+└── tests/                         # Complete Unit & Integration Test Suite
+    ├── test_baseline_metrics.py   # Verifies median I, S, F, B, H, P math
+    ├── test_shock_engine.py       # Verifies judge runway edge cases & twists
+    ├── test_recovery_planner.py   # Verifies emergency fund targets & backup actions
+    └── test_data_quality.py       # Verifies relational integrity on real accounts
+```
+
+---
+
+## 🧪 Testing & Verification
+
+Run the complete test suite:
 
 ```bash
-# Run the complete Phase 2 Discovery Reproduction Suite
+# Run all unit and integration tests
+pytest tests/
+
+# Run the Phase 2 statistical discoveries reproduction suite
 python src/discovery/run_discoveries.py
 ```
 
