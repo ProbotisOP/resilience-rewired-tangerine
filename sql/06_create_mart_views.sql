@@ -7,10 +7,10 @@ CREATE OR REPLACE VIEW ACCOUNT_BASELINE AS
 WITH MonthlyAggs AS (
     SELECT 
         account_id,
-        MEDIAN(money_in) AS typical_money_in_i,
-        MEDIAN(fixed_costs_row) AS typical_fixed_costs_f,
-        MEDIAN(money_out) AS typical_spending_s,
-        MEDIAN(household_bills) AS typical_household_bills_h,
+        ROUND(MEDIAN(money_in), 2) AS typical_money_in_i,
+        ROUND(MEDIAN(fixed_costs_row), 2) AS typical_fixed_costs_f,
+        ROUND(MEDIAN(money_out), 2) AS typical_spending_s,
+        ROUND(MEDIAN(household_bills), 2) AS typical_household_bills_h,
         COUNT(month) AS total_history_months
     FROM CORE.FACT_ACCOUNT_MONTH
     GROUP BY account_id
@@ -18,7 +18,7 @@ WITH MonthlyAggs AS (
 BufferCalc AS (
     SELECT 
         account_id,
-        AVG(avg_daily_balance) AS buffer_b
+        ROUND(AVG(avg_daily_balance), 2) AS buffer_b
     FROM (
         SELECT 
             account_id,
@@ -41,7 +41,7 @@ SELECT
     a.owner_client_id,
     a.branch_district_id,
     a.statement_frequency,
-    a.is_joint,
+    a.has_authorized_user,
     a.card_type,
     m.typical_money_in_i,
     m.typical_fixed_costs_f,

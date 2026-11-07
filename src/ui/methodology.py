@@ -1,65 +1,100 @@
-"""
-Screen 6: Methodology, Formula Standards & Dataset Provenance
-"""
-
 import streamlit as st
-from config.settings import THEME
+
 
 def render_methodology():
-    st.markdown("## 📖 Methodology, Formal Standards & Ethics")
-    st.caption("Complete transparency regarding metric definitions, mathematical integrity, and responsible data use.")
+    st.title("🧮 How we calculate it")
+    st.caption(
+        "No black boxes: the figures come from the supplied records and the formulas below. "
+        "Scenarios are what-ifs, not forecasts."
+    )
 
-    # 1. Official Challenge Definitions
-    st.subheader("📐 Official Tangerine Judging Formulas")
-    st.markdown("""
-    | Symbol | Official Metric | Precise Mathematical Definition | Notes / Nuances |
-    |:---|:---|:---|:---|
-    | **$I$** | Typical Monthly Money-In | `median(money_in)` across all account rows | Includes deposits and transfers |
-    | **$F$** | Typical Fixed Costs | `median(household_bills + insurance + loan_payments)` | Row-wise monthly sum first, then median |
-    | **$S$** | Typical Monthly Spending | `median(money_out)` across all account rows | Total monthly outflow |
-    | **$B$** | Savings Buffer | `mean(avg_daily_balance)` over last 6 rows | Chronologically sorted by month |
-    | **$H$** | Household Bills | `median(household_bills)` | Baseline for utility/rent shocks |
-    | **$P$** | Active Loan Payment | `monthly_payment` if loan status in `['C', 'D']`, else 0 | Excludes finished loans (A, B) |
-    """)
+    st.header("A typical month for one account")
+    st.markdown(
+        """
+        For an account, monthly records are sorted by month. We calculate:
 
-    st.markdown("#### Official Runway Formula:")
-    st.code("""
-buffer_left = B - one_off_costs
-gap         = spending_after_shock - income_after_shock
+        | Measure | Calculation |
+        |---|---|
+        | Plain-language figure | How it is calculated |
+        |---|---|
+        | **Money in** | Median of available monthly `money_in` rows |
+        | **Spending** | Median of available monthly `money_out` rows |
+        | **Fixed costs** | For each month, add household bills + insurance + loan payments; take the median of those monthly sums |
+        | **Household bills** | Median of available monthly household-bill rows |
+        | **Buffer** | Average `avg_daily_balance` across up to the latest six available monthly rows |
+        | **Monthly gap** | Spending minus money in, rounded to cents |
 
-if buffer_left <= 0:
-    runway = 0.0
-elif gap <= 0:
-    runway = "no shortfall (120+)"
-else:
-    runway = round(min(buffer_left / gap, 120.0), 1)
-    """, language="python")
+        Account histories can differ in length. The buffer uses up to the latest six
+        available rows; it does not imply six complete calendar months when records
+        are missing.
+        """
+    )
 
-    st.markdown("---")
+    st.header("How the runway is worked out")
+    st.latex(r"\text{Runway} = \min\left(\frac{B}{S-I}, 120\right)")
+    st.markdown(
+        """
+        In plain language: if the buffer is empty, the result is 0.0 months. If
+        money in covers spending and the buffer is positive, the display is 120+
+        months. Otherwise, divide the buffer by the monthly gap and cap the result
+        at 120 months. The app rounds runway to one decimal.
 
-    # 2. Responsible Data Science Declarations
-    st.subheader("🛡️ Responsible AI & Ethical Declarations")
-    st.markdown(f"""
-    <div style="background-color: {THEME['card_bg']}; padding: 18px; border-radius: 8px;">
-        <ul style="color: {THEME['text_muted']}; font-size: 14px; margin: 0; padding-left: 20px;">
-            <li><b>Decision-Support, Not Automated Underwriting:</b> This platform is designed as a financial resilience simulator to assist human customer advisors. It is not an automated credit scoring or rejection engine.</li>
-            <li><b>Association vs. Causation:</b> All statistical discoveries (e.g. joint accounts, statement frequency, cash inflow shares) represent empirical observational associations within this 6-year portfolio. They do not assert direct causation.</li>
-            <li><b>Privacy & Security:</b> No personal identity information (PII), full dates of birth, or individual raw transaction histories are transmitted to external Large Language Models. AI services receive only verified, aggregated evidence JSON.</li>
-            <li><b>Deterministic Priority:</b> All financial calculations are executed by deterministic, unit-tested Python services. LLMs are strictly restricted to narrative translation and explanation.</li>
-        </ul>
-    </div>
-    """, unsafe_allow_html=True)
+        For portfolio charts, it rounds first, then counts accounts strictly below
+        3, 6, or 12 months. So a displayed result of exactly 6.0 is **not** below
+        six months.
+        """
+    )
 
-    st.markdown("---")
+    st.header("What-if scenarios")
+    st.markdown(
+        """
+        Scenario settings change recorded money in, household bills, and/or add a
+        one-off cost. The app recalculates the monthly gap, remaining buffer and
+        runway using the same account figures. A money-in multiplier applies to
+        recorded money in; it does not verify employment income or benefit eligibility.
 
-    # 3. Credits & Attribution
-    st.subheader("📚 Dataset Attribution & Canadian Benchmarks")
-    st.markdown("""
-    - **Primary Dataset:** PKDD'99 Discovery Challenge Financial dataset (anonymized retail banking data), CTU Prague Relational Dataset Repository.
-    - **Monetary Normalization:** All currency denominations are in Canadian Dollars (CAD) as specified in the track challenge.
-    - **Macro Benchmarks (Canada):**
-      - Statistics Canada Consumer Price Index (CPI): [Table 18-10-0004-01](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=1810000401)
-      - CMHC Average Rents: [Table 34-10-0133-01](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=3410013301)
-      - Labour Force Survey: [Table 14-10-0287-01](https://www150.statcan.gc.ca/t1/tbl1/en/tv.action?pid=1410028701)
-      - Employment Insurance Regular Benefits (55% earnings): [Canada.ca EI Guidelines](https://www.canada.ca/en/services/benefits/ei/ei-regular-benefit.html)
-    """)
+        The timeline applies the same monthly gap in each selected scenario month.
+        That makes it a clear simulation, not a forecast of future transactions.
+        """
+    )
+
+    st.header("How much monthly improvement reaches a target?")
+    st.markdown(
+        "For a selected target duration, the optimizer spreads the available buffer "
+        "across the target months and calculates the remaining monthly improvement:"
+    )
+    st.latex(
+        r"\text{Required improvement} = "
+        r"\max\left(0,\ \text{monthly gap} - "
+        r"\frac{\text{available buffer}}{\text{target months}}\right)"
+    )
+    st.markdown(
+        """
+        The selected monthly adjustment is a separate what-if. It changes the
+        proposed monthly gap and estimated runway; it does not change the official
+        challenge runway. The app does not choose which costs are adjustable.
+        """
+    )
+
+    st.header("What the data can—and cannot—say")
+    st.markdown(
+        """
+        - Authorized-user records indicate account access only; they do not
+          establish spouses, partners, or household relationships.
+        - Observed associations do not establish causation. Simulated shocks are
+          not observed outcomes.
+        - Cash withdrawals are not automatically treated as discretionary spending.
+          A user may model an adjustment explicitly.
+        - Standing orders and external-destination payment instructions do not
+          prove contractual monthly commitments or outstanding external debt.
+        - A zero fixed-cost figure is shown as missing/zero evidence; the planner
+          asks the user to enter any essential-cost assumption rather than
+          inventing one.
+        - Snowflake is not connected in this application. The SQL files are
+          optional setup examples. Gemini, when configured, is an explanation
+          layer and does not calculate or alter financial metrics.
+        - These calculations summarize the supplied data; they are not financial
+          advice, credit decisions, or a full picture of a person's finances.
+        - No external benchmark is used to calibrate the calculations.
+        """
+    )

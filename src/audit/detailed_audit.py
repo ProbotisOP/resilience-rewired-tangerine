@@ -40,16 +40,14 @@ def detailed_audit():
     diff_districts = (disp_with_acc['district_id_client_home'] != disp_with_acc['district_id_acc_branch']).sum()
     print(f"Clients living in a different district from account branch: {diff_districts} / {len(disp_with_acc)} ({diff_districts/len(disp_with_acc)*100:.1f}%)")
     
-    # Authorized users vs owners
-    owner_client_ids = dispositions[dispositions['type'] == 'owner'].set_index('account_id')['client_id']
-    user_client_ids = dispositions[dispositions['type'] == 'authorized user'].set_index('account_id')['client_id']
-    pairs = pd.DataFrame({'owner_id': owner_client_ids, 'user_id': user_client_ids}).dropna()
-    pairs = pairs.merge(clients[['client_id', 'gender', 'age_at_2025']].add_prefix('owner_'), left_on='owner_id', right_on='owner_client_id')
-    pairs = pairs.merge(clients[['client_id', 'gender', 'age_at_2025']].add_prefix('user_'), left_on='user_id', right_on='user_client_id')
-    print(f"Couples / joint accounts count: {len(pairs)}")
-    pairs['age_diff'] = pairs['owner_age_at_2025'] - pairs['user_age_at_2025']
-    print(f"Owner vs User gender combos:\n{pd.crosstab(pairs['owner_gender'], pairs['user_gender'])}")
-    print(f"Age difference (owner - user) percentiles:\n{pairs['age_diff'].describe()}")
+    authorized_account_count = dispositions.loc[
+        dispositions["type"] == "authorized user", "account_id"
+    ].nunique()
+    print(f"Accounts with at least one authorized user: {authorized_account_count}")
+    print(
+        "An authorized-user disposition records account access; it does not identify "
+        "a spouse, partner, household member or co-borrower."
+    )
 
     # 4. Cards audit
     print("\n[Cards]")

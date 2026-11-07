@@ -1,6 +1,6 @@
 -- 01_create_database_and_schemas.sql
 -- Sheridan Datathon 2026 - Tangerine Track: Resilience Rewired
--- Creates the RESILIENCE_REWIRED database and layered architectural schemas.
+-- Optional Snowflake setup example only; the application does not connect to Snowflake.
 
 CREATE DATABASE IF NOT EXISTS RESILIENCE_REWIRED
     COMMENT = 'Tangerine Financial Resilience Intelligence Platform Database';
@@ -21,4 +21,4 @@ CREATE SCHEMA IF NOT EXISTS MART
 
 -- 4. SEMANTIC Schema: Cortex Semantic Views and governed metrics
 CREATE SCHEMA IF NOT EXISTS SEMANTIC
-    COMMENT = 'Governed semantic layer for Cortex Analyst and executive Q&A';
+    COMMENT = 'Optional reporting layer; no Cortex Semantic View is configured by the app';

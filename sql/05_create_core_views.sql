@@ -35,7 +35,7 @@ SELECT
     a.account_opened,
     d.client_id AS owner_client_id,
     c.card_type,
-    IFF(j.account_id IS NOT NULL, TRUE, FALSE) AS is_joint
+    IFF(j.account_id IS NOT NULL, TRUE, FALSE) AS has_authorized_user
 FROM RAW.ACCOUNTS_RAW a
 LEFT JOIN RAW.DISPOSITIONS_RAW d 
     ON a.account_id = d.account_id AND d.type = 'owner'

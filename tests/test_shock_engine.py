@@ -5,6 +5,8 @@ Unit tests for deterministic shock engine and official Judge Match Runway.
 from config.scenarios import OFFICIAL_PRESETS, PRESET_DICT
 from src.services.baseline_metrics import BaselineMetrics
 from src.services.shock_engine import calculate_judge_runway, simulate_shock
+from src.services.timeline_projection import project_shock_timeline
+from src.ui.shock_simulator import _timeline_duration, _timeline_figure
 import pandas as pd
 
 def test_runway_edge_cases():
@@ -87,6 +89,74 @@ def test_official_presets_simulation():
     assert res_s3.spending_after_shock == 8225.0
     assert res_s3.monthly_gap == 2725.0
     assert res_s3.runway_months == 7.3
+
+
+def test_what_if_timeline_reaches_the_calculated_runway():
+    baseline = BaselineMetrics(
+        account_id=12345,
+        I=10000.0,
+        F=2500.0,
+        S=8000.0,
+        B=20000.0,
+        H=1500.0,
+        P=500.0,
+        gap=-2000.0,
+        baseline_runway=120.0,
+        baseline_runway_label="no shortfall (120+)",
+        history_months=36,
+        has_running_loan=True,
+        last_6_months_summary=pd.DataFrame(),
+        is_in_deficit=False,
+        buffer_exhausted=False,
+        cash_inflow_ratio=0.5,
+        cash_outflow_ratio=0.7,
+        months_with_overdraft=0,
+        total_bank_fees=50.0,
+    )
+    shock = simulate_shock(baseline, PRESET_DICT["JOB_LOSS_EI_55"])
+    duration = _timeline_duration(shock, no_shortfall_duration=6)
+    projection = project_shock_timeline(
+        baseline, shock, duration_months=duration, adaptive_mode=False
+    )
+    adjusted_projection = project_shock_timeline(
+        baseline, shock, duration_months=duration, adaptive_mode=True
+    )
+
+    assert shock.runway_months == 8.0
+    assert duration == 8
+    fig, runway, depletion_step = _timeline_figure(
+        baseline, shock, projection, adjusted_projection, frame=duration
+    )
+    assert runway == 8.0
+    assert depletion_step == 8
+    assert fig.data[0].x[-1] == "Challenge runway · 8.0 mo"
+    assert fig.data[0].y[-1] == 0.0
+
+
+def test_what_if_timeline_uses_preview_duration_when_there_is_no_gap():
+    baseline = BaselineMetrics(
+        account_id=12345,
+        I=10000.0,
+        F=2500.0,
+        S=8000.0,
+        B=20000.0,
+        H=1500.0,
+        P=500.0,
+        gap=-2000.0,
+        baseline_runway=120.0,
+        baseline_runway_label="no shortfall (120+)",
+        history_months=36,
+        has_running_loan=True,
+        last_6_months_summary=pd.DataFrame(),
+        is_in_deficit=False,
+        buffer_exhausted=False,
+        cash_inflow_ratio=0.5,
+        cash_outflow_ratio=0.7,
+        months_with_overdraft=0,
+        total_bank_fees=50.0,
+    )
+    shock = simulate_shock(baseline, PRESET_DICT["BASELINE"])
+    assert _timeline_duration(shock, no_shortfall_duration=6) == 6
 
 if __name__ == "__main__":
     test_runway_edge_cases()
