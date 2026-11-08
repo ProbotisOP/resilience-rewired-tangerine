@@ -1,0 +1,306 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>When Does Money Run Out?</title>
+<link rel="stylesheet" href="shared/story.css">
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <a class="crumb" href="index.html">← All dashboards</a>
+    <button id="theme" class="theme-btn"></button>
+  </div>
+  <h1>When does the money run out, and what can be cut?</h1>
+  <p class="lede">First, the rhythm of a month: when money arrives and when it leaves. Then the shape of spending: how much is locked in,
+    and how much a customer could cut if a shock hits.</p>
+
+  <div class="stage">
+    <aside class="panel narrative">
+      <div id="narrative-content" class="fade-swap"></div>
+      <div class="controls">
+        <div class="btns">
+          <button id="prev" class="btn">← Back</button>
+          <button id="play" class="btn">▶ Play</button>
+          <button id="next" class="btn primary">Next →</button>
+          <span id="counter" class="counter"></span>
+        </div>
+        <div id="dots" class="dots"></div>
+        <div class="hint">← → keys to step · Space to autoplay · hover the chart</div>
+      </div>
+    </aside>
+
+    <section class="panel chart-card">
+      <div class="chart-head">
+        <div id="chart-title" class="chart-title"></div>
+        <div id="legend" class="legend"></div>
+      </div>
+      <svg id="viz" class="viz" viewBox="0 0 900 520" role="img" aria-label="Money flow charts"></svg>
+      <div class="widget" id="whatif">
+        <label>Cut flexible spending by <input type="range" id="cut" min="0" max="80" step="5" value="50"><output id="cutOut">50%</output></label>
+        <label>EI pays <input type="range" id="ei" min="0" max="100" step="5" value="55"><output id="eiOut">55%</output></label>
+      </div>
+      <details class="extra"><summary>Show the numbers as a table</summary><div id="table"></div></details>
+    </section>
+  </div>
+</div>
+
+<script src="lib/d3.min.js"></script>
+<script src="data/data.js"></script>
+<script src="shared/story.js"></script>
+<script>
+const D = window.DATA, S = Story, PD = D.payday, SP = D.spend, TY = D.typical;
+const days = PD.day.map((d, i) => ({ day: d, in: PD.in[i], out: PD.out[i], cash: PD.cash[i] }));
+let run = 0; days.forEach(d => { run += d.in - d.out; d.cum = run; });
+const sum = (a, f) => d3.sum(a, f);
+const totIn = sum(days, d => d.in), payIn = sum(days.filter(d => d.day >= 5 && d.day <= 14), d => d.in);
+const peak = days.reduce((a, b) => b.cum > a.cum ? b : a);
+const cashLo = d3.min(days.filter(d => d.day < 31), d => d.cash), cashHi = d3.max(days, d => d.cash);
+const M$ = v => "$" + v.toFixed(0) + "M";
+const fixedShare = SP.household_bills + SP.loan_payments + SP.insurance + SP.bank_fees;
+
+const steps = [
+  { scene: "flow", lines: ["in"], kicker: "Discovery #9 · The Payday Cycle",
+    title: "Money arrives in one 10-day burst.",
+    body: `<p>We added up every deposit in the transaction file by <b>day of the month</b>.</p>
+           <p>On days 1–4 about $19M comes in per day. On <b>day 5 it jumps to ${M$(days[4].in)}</b> and stays high until day 14, then drops back.</p>`,
+    stats: [{ v: S.pct(payIn / totIn, 0), l: "of all money in arrives on days 5–14", c: "--s1" }],
+    change: "A blue line drew itself across the month. It leaps up at day 5 and falls off a cliff after day 14. The shaded band marks that 10-day window." },
+
+  { scene: "flow", lines: ["in", "out"], kicker: "Discovery #9 · The Payday Cycle",
+    title: "Money out rises in the same window…",
+    body: `<p>The orange line is <b>all money out</b>. It also steps up on days 5–14, peaking on <b>day ${days.reduce((a, b) => b.out > a.out ? b : a).day}</b>. Bills and transfers tend to go out right after the money comes in.</p>`,
+    change: "An orange line traced in under the blue one. It rises in the same band but much less: the gap between the lines is money staying in accounts." },
+
+  { scene: "flow", lines: ["in", "out", "cash"], kicker: "Discovery #9 · The Payday Cycle",
+    title: "…but cash leaves at a steady drip, all month.",
+    body: `<p>The dashed line is <b>cash withdrawals</b> alone, about three-quarters of all money out. It barely moves: <b>${M$(cashLo)}–${M$(cashHi)}</b> every day, payday or not.</p>
+           <p>So customers aren't emptying their accounts at the ATM on payday. Cash drains out <b>evenly</b> while deposits arrive in a burst.</p>`,
+    change: "A dashed green line appeared, almost flat across all 31 days. The ups and downs of the orange line come from non-cash payments.",
+    note: `The report says inflows are "drained via cash within 48–72 hours". The transaction file we have (through ${D.totals.tx_last_date}) doesn't show that. Cash withdrawals are flat by day of month.` },
+
+  { scene: "flow", lines: ["cum"], kicker: "Discovery #9 · The Payday Cycle",
+    title: "Fill for 10 days, drain for 17.",
+    body: `<p>Now we stack it up: running total of money in minus money out, day by day. That is the combined balance of all accounts, traced across a month.</p>
+           <p>It climbs until <b>day ${peak.day}</b>, then slides for the rest of the month. The weakest point is the <b>start of the month</b>, just before payday. A shock that lands on day 1–4 hits an account at its emptiest.</p>`,
+    change: "The three lines merged into one running balance. The y-axis now shows the accumulated total. The marker sits on the peak, and the downhill after it is the drain.",
+    note: "Product idea from the report: a \"Payday Auto-Shield\" that moves 5% of each deposit into a protected pocket on deposit day, before the slow drain begins." },
+
+  { scene: "spend", layout: "whole", kicker: "Discovery #10 · The Spending Cushion",
+    title: "Every dollar that left an account, in one bar.",
+    body: `<p>This bar is <b>100% of money out</b> across all 185,326 account-months. Shock calculators (including the judges' runway formula) treat all of it as fixed: after a job loss, spending stays at S.</p>
+           <p>Is that realistic?</p>`,
+    change: "The chart switched to a single grey bar filling the full width: every dollar of spending, not yet broken down." },
+
+  { scene: "spend", layout: "split", kicker: "Discovery #10 · The Spending Cushion",
+    title: `Only ${S.pct(fixedShare, 0)} of spending is truly locked in.`,
+    body: `<p>Household bills, loan payments, insurance and fees are <b>fixed costs</b> (blue): <b>${S.pct(fixedShare)}</b>.</p>
+           <p><b>Cash withdrawals alone are ${S.pct(SP.cash_withdrawals_genuine)}</b>. Add card spending and other transfers, and <b>${S.pct(1 - fixedShare)}</b> of money out is flexible (orange).</p>`,
+    stats: [{ v: S.pct(fixedShare), l: "fixed costs (F)", c: "--s1" }, { v: S.pct(1 - fixedShare), l: "flexible spending", c: "--s2" }],
+    change: "The grey bar split into segments. The thin blue block on the left is everything locked in. The long orange run is spending a customer could reduce.",
+    note: "Caveat: some cash pays for essentials (groceries, or rent paid in cash), so not all of the orange is optional. This is an upper bound on what could bend." },
+
+  { scene: "spend", layout: "whatif", kicker: "Your turn · Adaptive runway",
+    title: "Bend the flexible part, and the runway stretches.",
+    body: `<p>A typical customer: income <b>${S.money(TY.I)}</b>, spending <b>${S.money(TY.S)}</b>, fixed costs <b>${S.money(TY.F)}</b>, buffer <b>${S.money(TY.B)}</b>.</p>
+           <p>The top bar is the judges' runway (spending frozen at S). The bottom bar keeps fixed costs and <b>cuts only the flexible part</b>. Drag the sliders.</p>`,
+    change: "Two runway bars replaced the spending bar. Move a slider and both bars resize live. The dashed line marks the 6-month target.",
+    note: "Adaptive spending = F + (1 − cut) × (S − F). The judges' number stays the official one; the adaptive bar shows what a plan could achieve." },
+];
+
+/* ---------- scaffolding ---------- */
+const W = 900, H = 520, M = { l: 64, r: 30, t: 40, b: 46 };
+const svg = d3.select("#viz");
+const gFlow = svg.append("g"), gSpend = svg.append("g").style("opacity", 0);
+
+/* ---------- flow (line chart) ---------- */
+const x = d3.scaleLinear().domain([1, 31]).range([M.l, W - M.r]);
+const y = d3.scaleLinear().range([H - M.b, M.t]);
+const band = gFlow.append("rect").attr("x", x(4.5)).attr("width", x(14.5) - x(4.5)).attr("y", M.t).attr("height", H - M.t - M.b)
+  .style("fill", "var(--blue-wash)").style("opacity", 0);
+const bandLbl = gFlow.append("text").attr("class", "sub").attr("x", (x(4.5) + x(14.5)) / 2).attr("y", M.t - 8).attr("text-anchor", "middle").text("days 5–14").style("opacity", 0);
+const grid = gFlow.append("g").attr("class", "grid").attr("transform", `translate(${M.l},0)`);
+const ax = gFlow.append("g").attr("class", "axis").attr("transform", `translate(0,${H - M.b})`)
+  .call(d3.axisBottom(x).ticks(31).tickFormat(d => d % 5 === 0 || d === 1 ? d : "").tickSize(4).tickPadding(6));
+const ay = gFlow.append("g").attr("class", "axis").attr("transform", `translate(${M.l},0)`);
+const yLbl = svg.append("text").attr("class", "sub").attr("x", 8).attr("y", 18);
+gFlow.append("text").attr("class", "sub").attr("x", W - M.r).attr("y", H - 8).attr("text-anchor", "end").text("day of the month");
+const LINES = {
+  in:   { f: d => d.in,   c: "var(--s1)", dash: null, name: "Money in" },
+  out:  { f: d => d.out,  c: "var(--s2)", dash: null, name: "All money out" },
+  cash: { f: d => d.cash, c: "var(--s3)", dash: "6 5", name: "Cash withdrawals" },
+  cum:  { f: d => d.cum,  c: "var(--s1)", dash: null, name: "Running total (in − out)" },
+};
+const paths = Object.fromEntries(Object.entries(LINES).map(([k, L]) => [k,
+  gFlow.append("path").style("fill", "none").style("stroke", L.c).style("stroke-width", 2.5).style("opacity", 0).attr("data-on", "0")]));
+const peakDot = gFlow.append("circle").attr("r", 6).style("fill", "var(--s1)").style("stroke", "var(--surface)").style("stroke-width", 2).style("opacity", 0);
+const peakLbl = gFlow.append("text").attr("class", "callout").attr("text-anchor", "middle").style("opacity", 0);
+const cross = gFlow.append("line").attr("y1", M.t).attr("y2", H - M.b).style("stroke", "var(--axis)").style("opacity", 0);
+let visible = [];
+gFlow.append("rect").attr("x", M.l).attr("y", M.t).attr("width", W - M.l - M.r).attr("height", H - M.t - M.b).style("fill", "transparent")
+  .on("mousemove", ev => {
+    const day = Math.max(1, Math.min(31, Math.round(x.invert(d3.pointer(ev)[0])))), d = days[day - 1];
+    cross.attr("x1", x(day)).attr("x2", x(day)).style("opacity", 1);
+    S.tip.show(`<div class="t">Day ${day} of the month</div>` + visible.map(k =>
+      `<div class="r"><span style="color:${LINES[k].c}">■</span> ${LINES[k].name}: <b>${M$(LINES[k].f(d))}</b></div>`).join(""), ev);
+  })
+  .on("mouseleave", () => { cross.style("opacity", 0); S.tip.hide(); });
+
+function drawFlow(lines) {
+  const T = S.T, cum = lines.includes("cum");
+  visible = lines;
+  y.domain(cum ? [Math.min(0, d3.min(days, d => d.cum)) * 1.1, peak.cum * 1.12] : [0, 135]);
+  ay.transition().duration(T).call(d3.axisLeft(y).ticks(6).tickFormat(v => "$" + v.toLocaleString() + "M").tickSize(0).tickPadding(8)).select(".domain").remove();
+  grid.transition().duration(T).call(d3.axisLeft(y).ticks(6).tickSize(-(W - M.l - M.r)).tickFormat(""));
+  yLbl.text(cum ? "running total of money in − out, $M" : "total moved on that day of the month, $M (all months)");
+  band.transition().duration(T).style("opacity", lines.includes("in") || cum ? 1 : 0);
+  bandLbl.transition().duration(T).style("opacity", lines.includes("in") || cum ? 1 : 0);
+
+  Object.entries(LINES).forEach(([k, L]) => {
+    const p = paths[k], on = lines.includes(k), was = p.attr("data-on") === "1";
+    const line = d3.line().x(d => x(d.day)).y(d => y(L.f(d))).curve(d3.curveMonotoneX);
+    p.attr("data-on", on ? "1" : "0");
+    if (on && !was) {                              // new line: draw it left to right
+      p.attr("d", line(days)).style("opacity", 1).style("stroke-dasharray", null);
+      const len = p.node().getTotalLength();
+      p.style("stroke-dasharray", `${len} ${len}`).style("stroke-dashoffset", len)
+        .transition().delay(T * 0.4).duration(T * 1.6).ease(d3.easeLinear).style("stroke-dashoffset", 0)
+        .on("end", function () { d3.select(this).style("stroke-dasharray", L.dash); });
+      if (!T) p.style("stroke-dasharray", L.dash).style("stroke-dashoffset", 0);
+    } else if (on) {                               // existing line: re-fit to the new axis
+      p.transition().duration(T).attr("d", line(days)).style("opacity", 1);
+    } else {
+      p.transition().duration(T / 2).style("opacity", 0);
+    }
+  });
+  peakDot.transition().delay(cum ? T * 1.6 : 0).duration(T / 2).style("opacity", cum ? 1 : 0).attr("cx", x(peak.day)).attr("cy", y(peak.cum));
+  peakLbl.transition().delay(cum ? T * 1.6 : 0).duration(T / 2).style("opacity", cum ? 1 : 0)
+    .attr("x", x(peak.day)).attr("y", y(peak.cum) - 14).text(`peak: day ${peak.day}`);
+}
+
+/* ---------- spend (stacked bar + what-if) ---------- */
+const SEG = [
+  { k: "household_bills", n: "Household bills", fixed: true },
+  { k: "loan_payments", n: "Loan payments", fixed: true },
+  { k: "insurance", n: "Insurance", fixed: true },
+  { k: "bank_fees", n: "Bank fees", fixed: true },
+  { k: "cash_withdrawals_genuine", n: "Cash withdrawals", fixed: false },
+  { k: "transfers_out_other", n: "Other transfers out", fixed: false },
+  { k: "card_withdrawals", n: "Card spending", fixed: false },
+];
+let acc = 0; SEG.forEach(s => { s.v = SP[s.k]; s.x0 = acc; acc += s.v; });
+const sx = d3.scaleLinear().domain([0, 1]).range([M.l, W - M.r]);
+const barY = 190, barH = 80;
+const segs = gSpend.selectAll("rect.seg").data(SEG).join("rect").attr("class", "seg").attr("y", barY).attr("height", barH)
+  .on("mousemove", (ev, s) => S.tip.show(`<div class="t">${s.n}</div><div class="r">${S.pct(s.v, 2)} of all money out</div><div class="r">${s.fixed ? "Fixed: hard to cut" : "Flexible: can be reduced"}</div>`, ev))
+  .on("mouseleave", S.tip.hide);
+const segLbl = gSpend.append("g");
+const brace = gSpend.append("g");
+
+// what-if bars
+const wy = d3.scaleBand().domain(["base", "adapt"]).range([150, 380]).padding(0.35);
+const wx = d3.scaleLinear().domain([0, 60]).range([M.l + 150, W - M.r - 40]);
+const wifG = gSpend.append("g").style("opacity", 0);
+const wAxis = wifG.append("g").attr("class", "axis").attr("transform", `translate(0,${380})`);
+const wGrid = wifG.append("g").attr("class", "grid").attr("transform", `translate(0,${380})`);
+const six = wifG.append("line").style("stroke", "var(--ink-2)").style("stroke-dasharray", "5 4");
+const sixLbl = wifG.append("text").attr("class", "sub").attr("text-anchor", "middle").text("6 months");
+const wBars = wifG.selectAll("rect.w").data(["base", "adapt"]).join("rect").attr("class", "w").attr("rx", 4)
+  .attr("x", wx(0)).attr("y", d => wy(d)).attr("height", wy.bandwidth()).attr("width", 0)
+  .style("fill", d => d === "base" ? "var(--s2)" : "var(--s1)");
+const wNames = wifG.selectAll("text.wn").data(["base", "adapt"]).join("text").attr("class", "wn lbl").attr("text-anchor", "end")
+  .attr("x", wx(0) - 10).attr("y", d => wy(d) + wy.bandwidth() / 2 - 4).style("font-weight", 600)
+  .text(d => d === "base" ? "Judges' runway" : "Adaptive runway");
+const wSub = wifG.selectAll("text.ws").data(["base", "adapt"]).join("text").attr("class", "ws sub").attr("text-anchor", "end")
+  .attr("x", wx(0) - 10).attr("y", d => wy(d) + wy.bandwidth() / 2 + 14);
+const wVal = wifG.selectAll("text.wv").data(["base", "adapt"]).join("text").attr("class", "wv big").style("font-size", "20px")
+  .attr("y", d => wy(d) + wy.bandwidth() / 2 + 7);
+const wifTitle = wifG.append("text").attr("class", "callout").attr("x", W / 2).attr("y", 110).attr("text-anchor", "middle");
+
+function runway(B, spend, inc) { const gap = spend - inc; return B <= 0 ? 0 : gap <= 0 ? Infinity : Math.min(B / gap, 120); }
+function drawWhatIf(animate) {
+  const cut = +document.getElementById("cut").value / 100, ei = +document.getElementById("ei").value / 100;
+  document.getElementById("cutOut").textContent = Math.round(cut * 100) + "%";
+  document.getElementById("eiOut").textContent = Math.round(ei * 100) + "%";
+  const inc = ei * TY.I, sAdapt = TY.F + (1 - cut) * (TY.S - TY.F);
+  const r = { base: runway(TY.B, TY.S, inc), adapt: runway(TY.B, sAdapt, inc) };
+  const sub = { base: `spending stays ${S.money(TY.S)}`, adapt: `spending cut to ${S.money(sAdapt)}` };
+  const show = v => v === Infinity ? "no shortfall" : v.toFixed(1) + " months";
+  const T = animate ? S.T : 120;
+  wAxis.call(d3.axisBottom(wx).ticks(6).tickFormat(v => v + (v === 60 ? "+" : "")).tickSize(0).tickPadding(8)).select(".domain").remove();
+  wGrid.call(d3.axisBottom(wx).ticks(6).tickSize(-(380 - 130)).tickFormat(""));
+  six.attr("x1", wx(6)).attr("x2", wx(6)).attr("y1", 130).attr("y2", 380);
+  sixLbl.attr("x", wx(6)).attr("y", 124);
+  wBars.transition().duration(T).attr("width", d => wx(Math.min(60, r[d])) - wx(0));
+  wVal.transition().duration(T).attr("x", d => wx(Math.min(60, r[d])) + 10).text(d => show(r[d]));
+  wSub.text(d => sub[d]);
+  wifTitle.text(`On EI at ${Math.round(ei * 100)}%, cutting flexible spending by ${Math.round(cut * 100)}%`);
+  wBars.on("mousemove", (ev, d) => S.tip.show(`<div class="t">${d === "base" ? "Judges' runway" : "Adaptive runway"}</div>
+      <div class="r">Monthly spending ${S.money(d === "base" ? TY.S : sAdapt)} vs income ${S.money(inc)}</div>
+      <div class="r">Shortfall ${S.money(Math.max(0, (d === "base" ? TY.S : sAdapt) - inc))}/mo → <b>${show(r[d])}</b></div>`, ev)).on("mouseleave", S.tip.hide);
+}
+["cut", "ei"].forEach(id => document.getElementById(id).oninput = () => drawWhatIf(false));
+
+function drawSpend(layout) {
+  const T = S.T, split = layout !== "whole";
+  const whatif = layout === "whatif";
+  segs.transition().duration(T).ease(S.ease).delay((s, i) => split && T ? i * 90 : 0)
+    .attr("x", s => split ? sx(s.x0) + 1 : sx(0)).attr("width", s => split ? Math.max(1, sx(s.x0 + s.v) - sx(s.x0) - 2) : sx(1) - sx(0))
+    .attr("rx", 3).style("fill", s => !split ? "var(--muted)" : s.fixed ? "var(--s1)" : "var(--s2)")
+    .style("opacity", whatif ? 0 : 1);
+  // segment labels: only segments wide enough get a direct label
+  const lab = split && !whatif ? SEG.filter(s => s.v > 0.03).map(s => ({ s, x: Math.min(sx(s.x0 + s.v / 2), W - M.r - 50), t1: s.n, t2: S.pct(s.v) })) :
+              !whatif ? [{ s: { k: "all" }, x: sx(0.5), t1: "All money out", t2: "100%" }] : [];
+  segLbl.selectAll("g").data(lab, d => d.s.k).join(
+    e => { const g = e.append("g").style("opacity", 0); g.append("text").attr("class", "a lbl").attr("text-anchor", "middle"); g.append("text").attr("class", "b big").attr("text-anchor", "middle"); return g; },
+    u => u, x => x.transition().duration(T / 3).style("opacity", 0).remove())
+    .call(g => { g.select(".a").attr("x", d => d.x).attr("y", barY - 36).text(d => d.t1); g.select(".b").attr("x", d => d.x).attr("y", barY - 14).style("font-size", "18px").text(d => d.t2); })
+    .transition().delay(T * 0.8).duration(T / 2).style("opacity", 1);
+  // braces under the bar: fixed vs flexible
+  const br = split && !whatif ? [{ id: "f", x0: 0, x1: fixedShare, t: `Fixed costs (F) · ${S.pct(fixedShare)}`, c: "var(--s1)" },
+                                 { id: "x", x0: fixedShare, x1: 1, t: `Flexible · ${S.pct(1 - fixedShare)}`, c: "var(--s2)" }] : [];
+  brace.selectAll("g").data(br, d => d.id).join(
+    e => { const g = e.append("g").style("opacity", 0); g.append("path").style("fill", "none").style("stroke-width", 2); g.append("text").attr("class", "callout").attr("text-anchor", "middle"); return g; },
+    u => u, x => x.transition().duration(T / 3).style("opacity", 0).remove())
+    .call(g => {
+      g.select("path").style("stroke", d => d.c).attr("d", d => `M${sx(d.x0) + 2},${barY + barH + 12} v10 H${sx(d.x1) - 2} v-10`);
+      g.select("text").attr("x", d => (sx(d.x0) + sx(d.x1)) / 2).attr("y", barY + barH + 48).attr("text-anchor", d => d.id === "f" ? "start" : "middle")
+        .attr("x", d => d.id === "f" ? sx(d.x0) : (sx(d.x0) + sx(d.x1)) / 2).text(d => d.t);
+    })
+    .transition().delay(T * 1.2).duration(T / 2).style("opacity", 1);
+  wifG.transition().duration(T / 2).style("opacity", whatif ? 1 : 0);
+  if (whatif) drawWhatIf(true);
+}
+
+/* ---------- step renderer ---------- */
+function render(i) {
+  const st = steps[i], flow = st.scene === "flow";
+  gFlow.transition().duration(S.T / 2).style("opacity", flow ? 1 : 0).style("pointer-events", flow ? "all" : "none");
+  gSpend.transition().duration(S.T / 2).style("opacity", flow ? 0 : 1).style("pointer-events", flow ? "none" : "all");
+  yLbl.style("opacity", flow ? 1 : 0);
+  S.widget(st.layout === "whatif" ? "whatif" : null);
+  if (flow) {
+    S.chartTitle("Money moving through all accounts, by day of the month");
+    S.legend(st.lines.map(k => [k === "in" || k === "cum" ? "--s1" : k === "cash" ? "--s3" : "--s2", LINES[k].name + (k === "cash" ? " (dashed)" : "")]));
+    drawFlow(st.lines);
+    table([["Day", "Money in ($M)", "Money out ($M)", "Cash withdrawals ($M)", "Running total ($M)"],
+           ...days.map(d => [d.day, d.in.toFixed(1), d.out.toFixed(1), d.cash.toFixed(1), d.cum.toFixed(1)])]);
+  } else {
+    S.chartTitle(st.layout === "whatif" ? "What-if: runway on EI for a typical customer" : "Where money out goes (all 185,326 account-months)");
+    S.legend(st.layout === "whole" ? [["--muted", "All spending"]] : st.layout === "whatif" ? [["--s2", "Spending frozen at S"], ["--s1", "Fixed costs kept, flexible cut"]]
+             : [["--s1", "Fixed (hard to cut)"], ["--s2", "Flexible (can be reduced)"]]);
+    drawSpend(st.layout);
+    table([["Category", "Share of money out", "Type"], ...SEG.map(s => [s.n, S.pct(s.v, 2), s.fixed ? "Fixed" : "Flexible"])]);
+  }
+}
+function table(rows) {
+  document.querySelector("#table").innerHTML = `<table class="data">` +
+    rows.map((r, i) => `<tr>${r.map(c => i ? `<td>${c}</td>` : `<th>${c}</th>`).join("")}</tr>`).join("") + "</table>";
+}
+
+S.initTheme();
+S.start({ steps, render });
+</script>
+</body>
+</html>

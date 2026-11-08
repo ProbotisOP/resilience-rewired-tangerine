@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Why Top Earners Crash?</title>
+<link rel="stylesheet" href="shared/story.css">
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <a class="crumb" href="index.html">← All dashboards</a>
+    <button id="theme" class="theme-btn"></button>
+  </div>
+  <h1>Phantom wealth: why do top earners crash first?</h1>
+  <p class="lede">All 4,500 accounts, sorted into ten equal income groups (deciles). We apply the judges' job-loss twist,
+    EI at 55% of income, and watch the "safe" end of the chart turn into the fragile end.</p>
+
+  <div class="stage">
+    <aside class="panel narrative">
+      <div id="narrative-content" class="fade-swap"></div>
+      <div class="controls">
+        <div class="btns">
+          <button id="prev" class="btn">← Back</button>
+          <button id="play" class="btn">▶ Play</button>
+          <button id="next" class="btn primary">Next →</button>
+          <span id="counter" class="counter"></span>
+        </div>
+        <div id="dots" class="dots"></div>
+        <div class="hint">← → keys to step · Space to autoplay · hover any bar or line</div>
+      </div>
+    </aside>
+
+    <section class="panel chart-card">
+      <div class="chart-head">
+        <div id="chart-title" class="chart-title"></div>
+        <div id="legend" class="legend"></div>
+      </div>
+      <svg id="viz" class="viz" viewBox="0 0 900 540" role="img" aria-label="Income decile chart"></svg>
+      <div class="widget" id="race-controls">
+        <label>Lower earner <select id="decA"></select></label>
+        <label>Higher earner <select id="decB"></select></label>
+        <label>EI pays <input type="range" id="ei" min="0" max="100" step="5" value="55"><output id="eiOut">55%</output></label>
+        <button class="btn" id="replay">↻ Replay race</button>
+      </div>
+      <details class="extra"><summary>Show the decile table</summary><div id="table"></div></details>
+    </section>
+  </div>
+</div>
+
+<script src="lib/d3.min.js"></script>
+<script src="data/data.js"></script>
+<script src="shared/story.js"></script>
+<script>
+const D = window.DATA, S = Story;
+const dec = D.deciles.map(d => ({ ...d, ei: 0.55 * d.I, gap: d.S - 0.55 * d.I }));
+const d1 = dec[0], d10 = dec[9];
+const k = v => v >= 1000 ? "$" + (v / 1000).toFixed(v >= 10000 ? 0 : 1) + "k" : "$" + Math.round(v);
+
+const steps = [
+  { kicker: "Discovery #3 · The Inverted Resilience Paradox",
+    title: "Common sense: the right side of this chart is safe.",
+    body: `<p>Each bar is the <b>typical monthly money in</b> for one tenth of all customers, lowest earners on the left (D1), highest on the right (D10).</p>
+           <p>Any bank would call D10 the safe end. Hold that thought.</p>`,
+    stats: [{ v: k(d1.I), l: "D1 typical income" }, { v: k(d10.I), l: "D10 typical income" }],
+    change: `Ten blue bars rise from the baseline. D10 earns <b>${(d10.I / d1.I).toFixed(0)}×</b> what D1 earns.`, view: "income" },
+
+  { kicker: "Step 2 · What goes out",
+    title: "But spending climbs just as fast.",
+    body: `<p>Next to each income bar we add <b>typical monthly spending</b>. The two bars are almost the same height in every group. People spend roughly what they earn.</p>
+           <p>Across all accounts, income and spending correlate at <b>0.97</b>.</p>`,
+    stats: [{ v: k(d1.I - d1.S), l: "D1 left over / month" }, { v: k(d10.I - d10.S), l: "D10 left over / month" }],
+    change: "An orange spending bar grew beside every blue bar and nearly reached it. The gap between each pair is what's left over each month.", view: "spend" },
+
+  { kicker: "Step 3 · The shock",
+    title: "Job loss: income drops to 55%.",
+    body: `<p>Employment Insurance replaces 55% of income. Spending doesn't drop on its own.</p>
+           <p>The space between the bars is now a <b>monthly shortfall</b> that has to come out of savings. In dollars, it grows enormous on the right.</p>`,
+    stats: [{ v: k(d1.gap), l: "D1 shortfall / month", c: "--s1" }, { v: k(d10.gap), l: "D10 shortfall / month", c: "--s2" }],
+    change: `Every blue bar <b>shrank by 45%</b>. The numbers above each pair show the new monthly hole: from ${k(d1.gap)} for D1 to <b>${k(d10.gap)}</b> for D10.`, view: "shock" },
+
+  { kicker: "Step 4 · The cushion",
+    title: "Richer customers have bigger buffers, but not big enough.",
+    body: `<p>Now blue is the <b>buffer</b> (average balance over the last 6 months) and orange is the <b>monthly shortfall</b> on EI.</p>
+           <p>From D1 to D10 the buffer grows <b>${(d10.B / d1.B).toFixed(1)}×</b>, but the shortfall grows <b>${(d10.gap / d1.gap).toFixed(0)}×</b>. The cushion can't keep up with the burn.</p>`,
+    stats: [{ v: (d10.B / d1.B).toFixed(1) + "×", l: "buffer growth D1 → D10", c: "--s1" }, { v: (d10.gap / d1.gap).toFixed(0) + "×", l: "shortfall growth D1 → D10", c: "--s2" }],
+    change: "Blue bars changed meaning to the buffer, so they're now taller on the right. The orange bars shrank to the monthly shortfall: tiny for D1, a big bite for D10.", view: "buffer" },
+
+  { kicker: "Step 5 · Runway",
+    title: "Divide one by the other, and the chart flips.",
+    body: `<p><b>Runway = buffer ÷ monthly shortfall</b>, the judges' formula. This is how many months a customer lasts on EI.</p>
+           <p>The lowest earners last <b>${d1.runway.toFixed(1)} months</b>. The top 10% last <b>${d10.runway.toFixed(1)}</b>. The "safe" end of the chart is now the danger zone.</p>`,
+    stats: [{ v: d1.runway.toFixed(1) + " mo", l: "D1 median runway", c: "--s1" }, { v: d10.runway.toFixed(1) + " mo", l: "D10 median runway", c: "--s2" }],
+    change: "The y-axis switched from dollars to months. The bars collapsed into a <b>downhill slope</b>, and the dashed line marks 6 months. Bars that fall below it turn orange.",
+    note: `Reproduced from the CSVs with the judges' definitions. The report printed 38.1 and 3.7 months; the story is the same.`, view: "runway" },
+
+  { kicker: "Step 6 · Who crashes",
+    title: `${S.pct(d10.under6, 0)} of top earners can't last 6 months.`,
+    body: `<p>Now each bar is the <b>share of customers</b> in that decile whose runway is under 6 months.</p>
+           <p>It rises from <b>${S.pct(d1.under6, 0)}</b> for D1 to <b>${S.pct(d10.under6, 0)}</b> for D10. Top earners are also overdrawn more often in normal times: <b>${S.pct(d10.overdraft)}</b> vs <b>${S.pct(d1.overdraft)}</b>.</p>`,
+    stats: [{ v: S.pct(d1.under6, 0), l: "D1 under 6 months", c: "--s1" }, { v: S.pct(d10.under6, 0), l: "D10 under 6 months", c: "--s2" }],
+    change: "The bars now count people, not months, and the slope reversed: it climbs to the right. The more you earn, the more likely you are to run out within 6 months.",
+    note: "Overdraft comparison of D10 vs D1–D4: χ² = 62.4, p ≈ 3×10⁻¹⁵ (report).", view: "under6" },
+
+  { kicker: "Your turn · The race to zero",
+    title: "Race two typical customers to an empty account.",
+    body: `<p>Each line is the buffer of a typical customer from one decile (built from that decile's medians), draining month by month on EI.</p>
+           <p>Pick any two deciles and drag the <b>EI slider</b> below the chart to see how much replacement income each would need.</p>`,
+    change: "The bars turned into two lines that drain over time. The counter follows the race, and an ✕ marks the month each buffer hits zero.",
+    note: "A medians-built customer won't match the median runway exactly (for example, D1 here is about 31 months vs a 44.5-month median), because a ratio of medians isn't the median of ratios.", view: "race" },
+];
+
+/* ---------- chart scaffolding ---------- */
+const W = 900, H = 540, M = { l: 64, r: 20, t: 46, b: 46 };
+const svg = d3.select("#viz");
+const x = d3.scaleBand().domain(dec.map(d => d.decile)).range([M.l, W - M.r]).padding(0.22);
+const xIn = d3.scaleBand().domain(["a", "b"]).range([0, x.bandwidth()]).padding(0.08);
+const y = d3.scaleLinear().range([H - M.b, M.t]);
+const gGrid = svg.append("g").attr("class", "grid").attr("transform", `translate(${M.l},0)`);
+const gX = svg.append("g").attr("class", "axis").attr("transform", `translate(0,${H - M.b})`);
+const gY = svg.append("g").attr("class", "axis").attr("transform", `translate(${M.l},0)`);
+const gBars = svg.append("g"), gNotes = svg.append("g"), gRace = svg.append("g").style("opacity", 0);
+const thresh = svg.append("g").style("opacity", 0);
+thresh.append("line").attr("x1", M.l).attr("x2", W - M.r).style("stroke", "var(--ink-2)").style("stroke-dasharray", "5 4");
+thresh.append("text").attr("class", "sub").attr("x", W - M.r).attr("text-anchor", "end").attr("dy", -6);
+const yTitle = svg.append("text").attr("class", "sub").attr("x", 8).attr("y", 18);
+gX.call(d3.axisBottom(x).tickSize(0).tickPadding(10)).select(".domain").style("stroke", "var(--axis)");
+
+/* each view: values for series a (blue) and b (orange), y domain, formatting */
+const VIEWS = {
+  income: { title: "Typical monthly money in, by income decile", a: d => d.I, b: null, max: 28000, fmt: k, yt: "$ per month",
+            legend: [["--s1", "Monthly income (I)"]] },
+  spend:  { title: "Income vs. spending, by income decile", a: d => d.I, b: d => d.S, max: 28000, fmt: k, yt: "$ per month",
+            legend: [["--s1", "Monthly income (I)"], ["--s2", "Monthly spending (S)"]] },
+  shock:  { title: "After job loss: EI income vs. unchanged spending", a: d => d.ei, b: d => d.S, max: 28000, fmt: k, yt: "$ per month",
+            legend: [["--s1", "Income on EI (0.55 × I)"], ["--s2", "Monthly spending (S)"]], gapLabels: true },
+  buffer: { title: "Savings buffer vs. monthly shortfall on EI", a: d => d.B, b: d => d.gap, max: 42000, fmt: k, yt: "$",
+            legend: [["--s1", "Buffer (B)"], ["--s2", "Monthly shortfall (S − 0.55 × I)"]] },
+  runway: { title: "Median runway on EI, months", a: d => d.runway, b: null, max: 50, fmt: v => v.toFixed(1), yt: "months",
+            legend: [["--s1", "6 months or more"], ["--s2", "Under 6 months"]], threshold: 6, colorA: d => d.runway < 6 ? "var(--s2)" : "var(--s1)" },
+  under6: { title: "Share of customers with under 6 months of runway on EI", a: d => d.under6, b: null, max: 1, fmt: v => S.pct(v, 0), yt: "share of customers",
+            legend: [["--s2", "Runway under 6 months"]], colorA: () => "var(--s2)" },
+};
+
+function tipFor(d) {
+  return `<div class="t">${d.decile} · income ${k(d.I)}/mo</div>
+    <div class="r">Spending ${k(d.S)} · buffer ${k(d.B)}</div>
+    <div class="r">EI shortfall <b>${k(d.gap)}</b>/mo</div>
+    <div class="r">Median runway <b>${d.runway.toFixed(1)} mo</b> · ${S.pct(d.under6, 0)} under 6 mo</div>`;
+}
+
+function drawBars(view) {
+  const V = VIEWS[view];
+  y.domain([0, V.max]);
+  const T = S.T;
+  gY.transition().duration(T).call(d3.axisLeft(y).ticks(6).tickFormat(V.fmt).tickSize(0).tickPadding(8)).select(".domain").remove();
+  gGrid.transition().duration(T).call(d3.axisLeft(y).ticks(6).tickSize(-(W - M.l - M.r)).tickFormat(""));
+  yTitle.text(V.yt);
+  const twin = !!V.b;
+  const rows = dec.flatMap(d => [{ d, s: "a", v: V.a(d) }, { d, s: "b", v: V.b ? V.b(d) : 0 }]);
+  const bw = twin ? xIn.bandwidth() : x.bandwidth();
+  const xpos = r => twin ? x(r.d.decile) + xIn(r.s) : x(r.d.decile);
+
+  gBars.selectAll("rect").data(rows, r => r.d.decile + r.s).join(
+    e => e.append("rect").attr("x", xpos).attr("width", bw).attr("y", y(0)).attr("height", 0).attr("rx", 4)
+          .on("mousemove", (ev, r) => S.tip.show(tipFor(r.d), ev)).on("mouseleave", S.tip.hide))
+    .transition().duration(T).ease(S.ease).delay((r, i) => T ? (i >> 1) * 40 : 0)
+    .attr("x", xpos).attr("width", r => (r.s === "b" && !twin) ? 0 : bw)
+    .attr("y", r => y(Math.max(0, r.v))).attr("height", r => y(0) - y(Math.max(0, r.v)))
+    .style("fill", r => r.s === "a" ? (V.colorA ? V.colorA(r.d) : "var(--s1)") : "var(--s2)");
+
+  // value labels: on the pair gap (shock view) or on the bars (single-series views)
+  const labels = V.gapLabels
+    ? dec.map(d => ({ id: d.decile, x: x(d.decile) + x.bandwidth() / 2, y: y(d.S) - 8, t: "−" + k(d.gap) }))
+    : !twin ? dec.map(d => ({ id: d.decile, x: x(d.decile) + x.bandwidth() / 2, y: y(V.a(d)) - 8, t: V.fmt(V.a(d)) }))
+    : [dec[0], dec[9]].map(d => ({ id: d.decile, x: x(d.decile) + x.bandwidth() / 2, y: y(Math.max(V.a(d), V.b(d))) - 8, t: view === "buffer" ? `${k(d.B)} vs ${k(d.gap)}` : `${k(d.I)} vs ${k(d.S)}` }));
+  gNotes.selectAll("text").data(labels, l => l.id).join("text").attr("class", "lbl").attr("text-anchor", "middle")
+    .style("font-weight", 600).style("opacity", 0).attr("x", l => l.x).attr("y", l => l.y).text(l => l.t)
+    .transition().delay(T).duration(T / 2).style("opacity", 1);
+
+  thresh.transition().duration(T).style("opacity", V.threshold ? 1 : 0);
+  if (V.threshold) { thresh.select("line").attr("y1", y(V.threshold)).attr("y2", y(V.threshold)); thresh.select("text").attr("y", y(V.threshold)).text("6-month line"); }
+}
+
+/* ---------- the race (last step) ---------- */
+const rx = d3.scaleLinear().domain([0, 36]).range([M.l, W - M.r]);
+const ry = d3.scaleLinear().range([H - M.b, M.t]);
+const raceAxisX = gRace.append("g").attr("class", "axis").attr("transform", `translate(0,${H - M.b})`);
+const raceGrid = gRace.append("g").attr("class", "grid").attr("transform", `translate(${M.l},0)`);
+const raceAxisY = gRace.append("g").attr("class", "axis").attr("transform", `translate(${M.l},0)`);
+const clock = gRace.append("text").attr("class", "big").attr("x", W - M.r).attr("y", M.t + 6).attr("text-anchor", "end").style("font-size", "22px");
+const clockSub = gRace.append("text").attr("class", "sub").attr("x", W - M.r).attr("y", M.t + 26).attr("text-anchor", "end");
+const lineA = gRace.append("path").style("fill", "none").style("stroke", "var(--s1)").style("stroke-width", 3);
+const lineB = gRace.append("path").style("fill", "none").style("stroke", "var(--s2)").style("stroke-width", 3);
+const endA = gRace.append("g"), endB = gRace.append("g");
+const lblA = gRace.append("text").attr("class", "callout"), lblB = gRace.append("text").attr("class", "callout");
+const hover = gRace.append("rect").attr("x", M.l).attr("y", M.t).attr("width", W - M.l - M.r).attr("height", H - M.t - M.b).style("fill", "transparent");
+const cross = gRace.append("line").attr("y1", M.t).attr("y2", H - M.b).style("stroke", "var(--axis)").style("opacity", 0);
+
+["decA", "decB"].forEach((id, j) => {
+  const sel = document.getElementById(id);
+  dec.forEach(d => sel.add(new Option(`${d.decile} (${k(d.I)}/mo)`, d.decile)));
+  sel.value = j ? "D10" : "D1";
+  sel.onchange = () => race(true);
+});
+const eiIn = document.getElementById("ei");
+eiIn.oninput = () => { document.getElementById("eiOut").textContent = eiIn.value + "%"; race(false); };
+document.getElementById("replay").onclick = () => race(true);
+
+function runwayOf(d, ei) { const gap = d.S - ei * d.I; return gap <= 0 ? Infinity : Math.max(0, d.B / gap); }
+let raceTimer;
+function race(animate) {
+  const ei = eiIn.value / 100;
+  const A = dec.find(d => d.decile === document.getElementById("decA").value);
+  const B = dec.find(d => d.decile === document.getElementById("decB").value);
+  ry.domain([0, Math.max(A.B, B.B) * 1.1]);
+  raceAxisX.call(d3.axisBottom(rx).ticks(12).tickSize(0).tickPadding(10)).select(".domain").style("stroke", "var(--axis)");
+  raceAxisY.call(d3.axisLeft(ry).ticks(6).tickFormat(k).tickSize(0).tickPadding(8)).select(".domain").remove();
+  raceGrid.call(d3.axisLeft(ry).ticks(6).tickSize(-(W - M.l - M.r)).tickFormat(""));
+  yTitle.text("buffer left ($)  ·  x-axis: months on EI");
+  const series = c => d3.range(0, 36.01, 0.25).map(t => [t, Math.max(0, c.B - (c.S - ei * c.I) * t)]);
+  const sa = series(A), sb = series(B), ra = runwayOf(A, ei), rb = runwayOf(B, ei);
+  const line = d3.line().x(p => rx(p[0])).y(p => ry(p[1]));
+
+  function frame(t) {   // draw up to month t; each line stops where its buffer hits zero
+    const upTo = (s, r) => { const pts = s.filter(p => p[0] <= Math.min(t, r)); if (r <= t && r <= 36) pts.push([r, 0]); return pts; };
+    lineA.attr("d", line(upTo(sa, ra)));
+    lineB.attr("d", line(upTo(sb, rb)));
+    const days = Math.round(t * 30.4);
+    clock.text(`Month ${t.toFixed(1)}`);
+    const dead = [[A, ra], [B, rb]].filter(([, r]) => r <= t).map(([c, r]) => `${c.decile} empty at ${r.toFixed(1)} mo (~${Math.round(r * 30.4)} days)`);
+    clockSub.text(dead.length ? dead.join(" · ") : `day ${days}: both still have money`);
+    [[endA, ra, "--s1"], [endB, rb, "--s2"]].forEach(([g, r, c]) => {
+      g.selectAll("*").remove();
+      if (r <= t && r <= 36) {
+        g.append("text").attr("x", rx(r)).attr("y", ry(0) + 6).attr("text-anchor", "middle").style("fill", `var(${c})`)
+         .style("font-size", "20px").style("font-weight", 700).text("✕");
+      }
+    });
+    const tag = (el, c, r, s, dy) => {
+      const tt = Math.min(t, r), last = s.filter(p => p[0] <= tt).pop() || s[0];
+      const px = r <= tt ? rx(r) : rx(last[0]), py = r <= tt ? ry(0) - 16 - dy : ry(last[1]) - 10;
+      const right = px > W - 200;
+      el.attr("x", right ? px - 8 : px + 8).attr("y", py).attr("text-anchor", right ? "end" : "start")
+        .text(`${c.decile}: ${r === Infinity ? "never runs out" : r <= tt ? "empty at " + r.toFixed(1) + " mo" : "still going"}`);
+    };
+    tag(lblA, A, ra, sa, Math.abs(ra - rb) < 4 ? 18 : 0); tag(lblB, B, rb, sb, 0);
+  }
+  clearInterval(raceTimer);
+  if (!animate || !S.T) return frame(36);
+  let t = 0;
+  raceTimer = setInterval(() => { t = Math.min(36, t + 0.25); frame(t); if (t >= 36) clearInterval(raceTimer); }, 28);
+
+  hover.on("mousemove", ev => {
+    const [mx] = d3.pointer(ev); const t = Math.max(0, Math.min(36, rx.invert(mx)));
+    cross.attr("x1", rx(t)).attr("x2", rx(t)).style("opacity", 1);
+    const at = c => Math.max(0, c.B - (c.S - ei * c.I) * t);
+    S.tip.show(`<div class="t">Month ${t.toFixed(1)} on EI (${eiIn.value}%)</div>
+      <div class="r"><span style="color:var(--s1)">■</span> ${A.decile}: ${k(at(A))} left</div>
+      <div class="r"><span style="color:var(--s2)">■</span> ${B.decile}: ${k(at(B))} left</div>`, ev);
+  }).on("mouseleave", () => { cross.style("opacity", 0); S.tip.hide(); });
+}
+
+/* ---------- step renderer ---------- */
+function render(i) {
+  const view = steps[i].view;
+  if (view === "race") {
+    S.chartTitle("Race to an empty account: buffer left each month on EI");
+    S.legend([["--s1", "Lower-earning customer"], ["--s2", "Higher-earning customer"]]);
+    [gBars, gNotes, gX, gY, gGrid, thresh].forEach(g => g.transition().duration(S.T / 2).style("opacity", 0));
+    gRace.transition().delay(S.T / 2).duration(S.T / 2).style("opacity", 1);
+    S.widget("race-controls");
+    setTimeout(() => race(true), S.T / 2);
+  } else {
+    clearInterval(raceTimer);
+    S.widget(null);
+    gRace.transition().duration(S.T / 3).style("opacity", 0);
+    [gBars, gNotes, gX, gY, gGrid].forEach(g => g.transition().duration(S.T / 2).style("opacity", 1));
+    S.chartTitle(VIEWS[view].title);
+    S.legend(VIEWS[view].legend);
+    drawBars(view);
+  }
+}
+
+document.getElementById("table").innerHTML =
+  `<table class="data"><tr><th>Decile</th><th>Income I</th><th>Spending S</th><th>Buffer B</th><th>EI shortfall</th><th>Median runway</th><th>Under 6 mo</th><th>Overdraft rate</th></tr>` +
+  dec.map(d => `<tr><td>${d.decile}</td><td>${S.money(d.I)}</td><td>${S.money(d.S)}</td><td>${S.money(d.B)}</td><td>${S.money(d.gap)}</td><td>${d.runway.toFixed(1)}</td><td>${S.pct(d.under6)}</td><td>${S.pct(d.overdraft)}</td></tr>`).join("") + "</table>";
+
+S.initTheme();
+S.start({ steps, render });
+</script>
+</body>
+</html>

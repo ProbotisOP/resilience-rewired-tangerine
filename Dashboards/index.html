@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hidden Patterns Dashboards</title>
+<link rel="stylesheet" href="shared/story.css">
+<style>
+  .hero-stats { display: flex; gap: 28px; flex-wrap: wrap; margin: 6px 0 26px; }
+  .hero-stats .v { font-size: 30px; font-weight: 650; line-height: 1.1; }
+  .hero-stats .l { font-size: 13px; color: var(--muted); }
+  .card .kicker { color: var(--s2); }
+  .notes { margin-top: 28px; padding: 18px 22px; }
+  .notes h2 { font-size: 17px; margin: 0 0 8px; }
+  .notes ul { margin: 0; padding-left: 18px; color: var(--ink-2); font-size: 14px; }
+  .notes li { margin-bottom: 6px; }
+  .how { color: var(--ink-2); font-size: 14px; margin: 0 0 18px; }
+  kbd { border: 1px solid var(--ring); border-bottom-width: 2px; border-radius: 4px; padding: 0 5px; font-size: 12px; background: var(--surface); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <span class="crumb">Sheridan Datathon 2026 · Tangerine: Resilience Rewired · Team CTRL + ALT + WIN</span>
+    <button id="theme" class="theme-btn"></button>
+  </div>
+  <h1>Hidden patterns in 4,500 bank accounts</h1>
+  <p class="lede">Four guided stories built from <code>reports/phase2_hidden_patterns_discovery.md</code>. Each chart moves one step at a time,
+    and the panel beside it explains what just changed and why it matters.</p>
+  <div class="hero-stats" id="hero"></div>
+  <p class="how">Click a story, then use <b>Next</b> or the <kbd>→</kbd> key. <kbd>Space</kbd> autoplays. Hover any mark for details. Every chart has a table view.</p>
+
+  <div class="cards">
+    <a class="panel card" href="1_who_defaults.html">
+      <div class="kicker">Discoveries #1 · #2 · #4 · #5</div>
+      <h3>Who really defaults?</h3>
+      <p>682 real loans as dots. Watch the 76 defaults regroup as we sort by household, card, cash use and statement habits.</p>
+      <ul><li>0 of 145 joint-account loans defaulted</li><li>0 warning signs → 0% default; all 4 → 44%</li></ul>
+      <div class="go">Open story →</div>
+    </a>
+    <a class="panel card" href="2_phantom_wealth.html">
+      <div class="kicker">Discovery #3</div>
+      <h3>Why do top earners crash first?</h3>
+      <p>Income deciles under a job-loss shock. Bars turn into runway, and the "safe" top earners end up at the bottom.</p>
+      <ul><li>Top 10%: about 4 months of runway on EI</li><li>Interactive race to an empty account</li></ul>
+      <div class="go">Open story →</div>
+    </a>
+    <a class="panel card" href="3_trap_doors.html">
+      <div class="kicker">Discoveries #6 · #7 · #8</div>
+      <h3>Which warning signs does the bank miss?</h3>
+      <p>Penalty interest, leasing contracts and loan payments the loan book can't see, each a signal hiding in the bank's own tables.</p>
+      <ul><li>9 in 10 penalized borrowers defaulted</li><li>35 customers pay loans the bank has no record of</li></ul>
+      <div class="go">Open story →</div>
+    </a>
+    <a class="panel card" href="4_money_flow.html">
+      <div class="kicker">Discoveries #9 · #10</div>
+      <h3>When does the money run out, and what can be cut?</h3>
+      <p>The rhythm of a month (fill for 10 days, drain for 17), then how much spending could bend in a crisis.</p>
+      <ul><li>Only 19% of spending is fixed</li><li>Live what-if: adaptive vs. judges' runway</li></ul>
+      <div class="go">Open story →</div>
+    </a>
+  </div>
+
+  <section class="panel notes">
+    <h2>Data notes: where these numbers differ from the report</h2>
+    <ul id="notes"></ul>
+  </section>
+</div>
+<script src="data/data.js"></script>
+<script src="shared/story.js"></script>
+<script>
+  const D = window.DATA;
+  document.getElementById("hero").innerHTML = [
+    [D.totals.accounts.toLocaleString(), "accounts"], [D.totals.loans, "loans"], [D.totals.defaulted, "defaulted loans"],
+    [D.totals.transactions_in_file.toLocaleString(), "transactions in file"],
+  ].map(([v, l]) => `<div><div class="v">${v}</div><div class="l">${l}</div></div>`).join("");
+  const d10 = D.deciles[9], d1 = D.deciles[0];
+  document.getElementById("notes").innerHTML = [
+    `Every number is rebuilt from the raw CSVs by <code>prep/build_data.py</code>. The dashboards themselves compute nothing except the two what-if sliders.`,
+    `<b>#3 Phantom wealth:</b> income, spending and overdraft rates match the report exactly. Buffer-based figures differ: D10 runway ${d10.runway.toFixed(1)} months and ${(d10.under6 * 100).toFixed(1)}% under 6 months (report: 3.7 and 84.4%); D1 ${d1.runway.toFixed(1)} months (report: 38.1). The story holds either way.`,
+    `<b>#5 Cash gradient:</b> the report's quartile table (3.9% → 18.1%, uneven group sizes) did not reproduce. Equal quartiles give ${["Q1", "Q4"].map(q => { const m = D.loans.filter(r => r[5] === q); return (100 * m.filter(r => r[1]).length / m.length).toFixed(1) + "%"; }).join(" → ")}: same direction, steeper.`,
+    `<b>#7 Debt shadow:</b> 35 accounts pay a "loan payment" with no loan on record (confirmed). The "competitor bank" reading isn't provable: those orders use the same bank codes as in-house loans.`,
+    `<b>#8 Penalty spiral and #9 payday cycle:</b> our <code>transactions.csv</code> has ${D.totals.transactions_in_file.toLocaleString()} rows and stops on ${D.totals.tx_last_date} (the report cites 1,056,320), so counts are smaller (${D.penalty.accounts} penalized accounts vs 264). The default rate among penalized borrowers matches (~90%). Cash withdrawals turn out to be flat across the month, not drained within 48–72 hours.`,
+    `<b>Caveat for all:</b> these are associations, not causes, and some groups are small (32 per-transaction-statement loans, 25 loans with all four warning signs).`,
+  ].map(t => `<li>${t}</li>`).join("");
+  Story.initTheme();
+</script>
+</body>
+</html>

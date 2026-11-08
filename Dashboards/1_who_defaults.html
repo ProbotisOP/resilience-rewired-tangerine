@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Who Really Defaults</title>
+<link rel="stylesheet" href="shared/story.css">
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <a class="crumb" href="index.html">← All dashboards</a>
+    <button id="theme" class="theme-btn"></button>
+  </div>
+  <h1>Who really defaults?</h1>
+  <p class="lede">Each dot is one real loan from <code>loans.csv</code>. As you step through, the same 682 dots
+    regroup by a different trait of the account behind them, so you can watch where the 76 defaults land.</p>
+
+  <div class="stage">
+    <aside class="panel narrative">
+      <div id="narrative-content" class="fade-swap"></div>
+      <div class="controls">
+        <div class="btns">
+          <button id="prev" class="btn">← Back</button>
+          <button id="play" class="btn">▶ Play</button>
+          <button id="next" class="btn primary">Next →</button>
+          <span id="counter" class="counter"></span>
+        </div>
+        <div id="dots" class="dots"></div>
+        <div class="hint">← → keys to step · Space to autoplay · hover any dot or column</div>
+      </div>
+    </aside>
+
+    <section class="panel chart-card">
+      <div class="chart-head">
+        <div id="chart-title" class="chart-title"></div>
+        <div id="legend" class="legend"></div>
+      </div>
+      <svg id="viz" class="viz" viewBox="0 0 900 580" role="img" aria-label="Unit chart of 682 loans grouped by account trait"></svg>
+      <details class="extra"><summary>Show the numbers for this view as a table</summary><div id="table"></div></details>
+    </section>
+  </div>
+</div>
+
+<script src="lib/d3.min.js"></script>
+<script src="data/data.js"></script>
+<script src="shared/story.js"></script>
+<script>
+const D = window.DATA, S = Story;
+const loans = D.loans.map(r => ({ id: r[0], bad: r[1], status: r[2], joint: r[3], card: r[4], cashQ: r[5], freq: r[6], flags: r[7] }));
+const STATUS = { A: "A · finished, repaid", B: "B · finished, NOT repaid", C: "C · running, on track", D: "D · running, behind" };
+const FREQ = { monthly: "Monthly statement", weekly: "Weekly statement", per_tx: "Statement after every transaction" };
+
+/* ---------- groupings: each step regroups the same dots ---------- */
+const GROUPINGS = {
+  all:   { title: "All 682 loans",                      keys: ["All loans"],                         key: () => "All loans" },
+  joint: { title: "Solo vs. joint accounts",            keys: ["Solo account", "Joint account"],     key: d => d.joint ? "Joint account" : "Solo account" },
+  card:  { title: "Card on the account?",               keys: ["No card", "Has a card"],             key: d => d.card ? "Has a card" : "No card" },
+  cash:  { title: "Share of money in that arrives as cash (quartiles)", keys: ["Q1", "Q2", "Q3", "Q4"], key: d => d.cashQ,
+           names: { Q1: "Q1 · transfers", Q2: "Q2 · mixed", Q3: "Q3 · cash", Q4: "Q4 · almost all cash" } },
+  freq:  { title: "Statement frequency chosen at account opening", keys: ["monthly", "weekly", "per_tx"], key: d => d.freq,
+           names: { monthly: "Monthly", weekly: "Weekly", per_tx: "After every transaction" } },
+  flags: { title: "Number of warning signs on the account (0–4)", keys: [0, 1, 2, 3, 4], key: d => d.flags,
+           names: { 0: "0 signs", 1: "1 sign", 2: "2 signs", 3: "3 signs", 4: "All 4" } },
+};
+
+function groupStats(g) {
+  return g.keys.map(k => {
+    const m = loans.filter(d => g.key(d) === k);
+    const bad = m.filter(d => d.bad).length;
+    return { key: k, name: (g.names && g.names[k]) || k, n: m.length, bad, rate: m.length ? bad / m.length : 0 };
+  });
+}
+const R = Object.fromEntries(Object.entries(GROUPINGS).map(([k, g]) => [k, Object.fromEntries(groupStats(g).map(s => [s.key, s]))]));
+const acc = D.freqAccounts, joinA = D.jointAccounts;
+
+/* ---------- the story ---------- */
+const steps = [
+  { g: "all", kicker: "The starting line",
+    title: "682 loans. 76 of them went bad.",
+    body: `<p>Every dot is a loan. <b>Orange</b> means it defaulted (status B, finished unpaid, or D, running and behind). <b>Blue</b> means it is repaid or on track.</p>
+           <p>A bank's usual toolkit is income, credit history and loan size. Watch what happens when we sort these same dots by things banks <i>don't</i> usually look at.</p>`,
+    stats: [{ v: "76", l: "defaulted loans", c: "--s2" }, { v: S.pct(76 / 682), l: "baseline default rate" }],
+    change: "Nothing yet. All 682 dots sit in one block, and the orange ones are stacked at the bottom so you can see how much of the block they fill." },
+
+  { g: "joint", kicker: "Discovery #1 · The Spousal Shield",
+    title: "Every single default is on a solo account.",
+    body: `<p>A <b>joint</b> account has a second person on it as an authorized user. That person isn't legally on the hook for the loan.</p>
+           <p>Yet <b>0 of 145</b> loans on joint accounts defaulted. Going wider, <b>0 of ${joinA.True.n} joint accounts</b> ever had a negative balance, vs <b>${joinA.False.neg} of ${joinA.False.n.toLocaleString()}</b> solo accounts.</p>`,
+    stats: [{ v: S.pct(R.joint["Solo account"].rate), l: "solo default rate", c: "--s2" }, { v: "0.0%", l: "joint default rate", c: "--s1" }],
+    change: "The dots split into two columns. <b>All 76 orange dots flowed left</b> into Solo. The Joint column on the right is entirely blue.",
+    note: "χ² = 21.7, p ≈ 3×10⁻⁶. An association, not proof that adding a person causes safety: two-adult households differ in many ways." },
+
+  { g: "card", kicker: "Discovery #4 · The Cardholder Paradox",
+    title: "Having a card goes with about 5× fewer defaults.",
+    body: `<p>A payment card is just an access tool, not a credit product. Yet borrowers with a card default <b>${S.pct(R.card["Has a card"].rate)}</b> of the time vs <b>${S.pct(R.card["No card"].rate)}</b> without.</p>
+           <p>A card is a sign the customer runs their money through the bank, not just over the branch counter in cash.</p>`,
+    stats: [{ v: S.pct(R.card["No card"].rate), l: "no card", c: "--s2" }, { v: S.pct(R.card["Has a card"].rate), l: "has a card", c: "--s1" }],
+    change: `The dots regroup. <b>${R.card["No card"].bad} of the 76 orange dots</b> land in "No card"; only ${R.card["Has a card"].bad} end up with cardholders. Some dots that were in Joint now sit in No card. Same loans, new lens.`,
+    note: "χ² = 14.3, p ≈ 1.6×10⁻⁴. Cardholders also have higher incomes and buffers, so the card is partly a wealth signal." },
+
+  { g: "cash", kicker: "Discovery #5 · The Cash Gradient",
+    title: "The more money arrives as cash, the more loans fail.",
+    body: `<p>We ranked borrowers by the share of their money in that arrives as <b>cash deposits</b> rather than transfers, and cut them into four equal groups.</p>
+           <p>The default rate climbs at every step: <b>${["Q1", "Q2", "Q3", "Q4"].map(q => S.pct(R.cash[q].rate)).join(" → ")}</b>. Heavy cash income tends to be informal and irregular, with no payroll and no predictable payday.</p>`,
+    stats: [{ v: S.pct(R.cash.Q1.rate), l: "Q1 · transfer-based", c: "--s1" }, { v: S.pct(R.cash.Q4.rate), l: "Q4 · almost all cash", c: "--s2" }],
+    change: `Four columns now, each 170 loans. Read the small rate bars above them: they <b>grow from left to right</b>. The Q4 column alone holds ${R.cash.Q4.bad} of the 76 orange dots.`,
+    note: `Customers are split into two camps: Q1 gets ≤${(D.cashQRanges.Q1.max * 100).toFixed(0)}% of its money as cash, while Q3–Q4 are over 99% cash.
+           Reproduced from the raw CSVs. The report's table (3.9% → 18.1%) did not reproduce exactly, but the direction is the same and the real gradient is steeper.` },
+
+  { g: "freq", kicker: "Discovery #2 · The Statement Canary",
+    title: "Asking for a statement after every transaction is a distress signal.",
+    body: `<p>At account opening, customers pick how often they get statements. Most choose monthly. The few who want a statement <b>after every transaction</b> look like people watching every dollar.</p>
+           <p>Across all accounts, they are overdrawn far more often: <b>${S.pct(acc["statement after each transaction"].neg / acc["statement after each transaction"].n)}</b> vs <b>${S.pct(acc["monthly statement"].neg / acc["monthly statement"].n)}</b> for monthly.</p>`,
+    stats: [{ v: S.pct(R.freq.per_tx.rate), l: "default rate, per-transaction", c: "--s2" }, { v: S.pct(R.freq.monthly.rate), l: "default rate, monthly", c: "--s1" }],
+    change: `The dots regroup by statement choice. The right-hand column is small (only ${R.freq.per_tx.n} loans), but its rate bar is the longest: nearly <b>1 in 5</b> of its dots is orange.`,
+    note: "The overdraft gap is highly significant (χ² = 84.5, p ≈ 4×10⁻¹⁹). The default gap is not (p = 0.07), because only 32 loans have per-transaction statements." },
+
+  { g: "flags", kicker: "Putting it together",
+    title: "Stack the signs and the risk compounds.",
+    body: `<p>For every loan we counted four warning signs: <b>solo account</b>, <b>no card</b>, <b>top cash quartile</b>, and <b>non-monthly statements</b>.</p>
+           <p>Loans with none of them: <b>${R.flags[0].bad} of ${R.flags[0].n}</b> defaulted. Loans with all four: <b>${R.flags[4].bad} of ${R.flags[4].n}</b> (${S.pct(R.flags[4].rate, 0)}).</p>
+           <p>None of these come from a credit bureau. They are already in the bank's own tables.</p>`,
+    stats: [{ v: S.pct(R.flags[0].rate, 0), l: "0 warning signs", c: "--s1" }, { v: S.pct(R.flags[4].rate, 0), l: "all 4 warning signs", c: "--s2" }],
+    change: `The dots sorted themselves by how many signs their account shows. Rates climb with each extra sign: <b>${[0, 1, 2, 3, 4].map(k => S.pct(R.flags[k].rate, 0)).join(" → ")}</b>.`,
+    note: "A count of signs, not a fitted model. The end groups are small (27 and 25 loans), so treat the exact percentages as rough." },
+];
+
+/* ---------- chart ---------- */
+const W = 900, H = 580, M = { l: 24, r: 24, top: 120, bottom: 54 };
+const svg = d3.select("#viz");
+const base = H - M.bottom;
+svg.append("line").attr("class", "baseline").attr("x1", M.l).attr("x2", W - M.r).attr("y1", base + 4).attr("y2", base + 4)
+   .style("stroke", "var(--axis)");
+const gDots = svg.append("g");
+const gLabels = svg.append("g");
+
+const dots = gDots.selectAll("circle").data(loans, d => d.id).join("circle")
+  .attr("cx", W / 2).attr("cy", base).attr("r", 0)
+  .style("fill", d => d.bad ? "var(--s2)" : "var(--s1)")
+  .style("stroke", "var(--surface)").style("stroke-width", 1)
+  .on("mousemove", (ev, d) => S.tip.show(
+    `<div class="t">Account ${d.id}</div>
+     <div class="r">Loan: ${STATUS[d.status]}</div>
+     <div class="r">${d.joint ? "Joint" : "Solo"} account · ${d.card ? "has a card" : "no card"}</div>
+     <div class="r">Cash quartile ${d.cashQ} · ${FREQ[d.freq].toLowerCase()}</div>
+     <div class="r">Warning signs: <b>${d.flags} of 4</b></div>`, ev))
+  .on("mouseleave", S.tip.hide);
+
+function layout(gName) {
+  const g = GROUPINGS[gName], stats = groupStats(g), k = g.keys.length;
+  const colW = (W - M.l - M.r) / k, availH = base - M.top;
+  let s = 15, cols;
+  for (; s > 6; s -= 0.5) {                    // largest dot spacing where every group still fits
+    cols = Math.floor((colW - 28) / s);
+    if (d3.max(stats, t => Math.ceil(t.n / cols)) * s <= availH) break;
+  }
+  const pos = new Map(), groups = [];
+  stats.forEach((t, gi) => {
+    const x0 = M.l + gi * colW + (colW - cols * s) / 2;
+    const members = loans.filter(d => g.key(d) === t.key);   // already ordered: defaulted first
+    members.forEach((d, j) => pos.set(d.id, { x: x0 + (j % cols) * s + s / 2, y: base - Math.floor(j / cols) * s - s / 2 }));
+    const rows = Math.ceil(t.n / cols);
+    groups.push({ ...t, cx: M.l + gi * colW + colW / 2, top: base - rows * s, colW });
+  });
+  return { pos, groups, r: s * 0.4 };
+}
+
+const rateX = d3.scaleLinear().domain([0, 0.5]).range([0, 120]);
+
+function render(i) {
+  const st = steps[i], gName = st.g, { pos, groups, r } = layout(gName);
+  S.chartTitle(GROUPINGS[gName].title);
+  S.legend([["--s2", "Defaulted (B or D)"], ["--s1", "Repaid or on track (A or C)"]]);
+
+  dots.transition().duration(S.T).ease(S.ease)
+    .delay((d, j) => S.T ? (j % 120) * 3 : 0)
+    .attr("cx", d => pos.get(d.id).x).attr("cy", d => pos.get(d.id).y).attr("r", r);
+
+  const lab = gLabels.selectAll("g.grp").data(groups, d => gName + d.key);
+  lab.exit().transition().duration(S.T / 3).style("opacity", 0).remove();
+  const enter = lab.enter().append("g").attr("class", "grp").style("opacity", 0);
+  enter.append("text").attr("class", "big rate").attr("text-anchor", "middle").style("font-size", "26px");
+  enter.append("text").attr("class", "sub count").attr("text-anchor", "middle");
+  enter.append("rect").attr("class", "track").attr("height", 6).attr("rx", 3).style("fill", "var(--grid)");
+  enter.append("rect").attr("class", "bar").attr("height", 6).attr("rx", 3).style("fill", "var(--s2)").attr("width", 0);
+  enter.append("text").attr("class", "lbl name").attr("text-anchor", "middle").style("font-weight", 600);
+  enter.append("rect").attr("class", "hit").style("fill", "transparent");
+
+  const all = enter.merge(lab);
+  all.select(".name").attr("x", d => d.cx).attr("y", base + 26).text(d => d.name);
+  all.select(".rate").attr("x", d => d.cx).attr("y", d => d.top - 40).text(d => S.pct(d.rate));
+  all.select(".count").attr("x", d => d.cx).attr("y", d => d.top - 22).text(d => `${d.bad} of ${d.n} defaulted`);
+  all.select(".track").attr("x", d => d.cx - 60).attr("y", d => d.top - 14).attr("width", 120);
+  all.select(".bar").attr("x", d => d.cx - 60).attr("y", d => d.top - 14)
+     .transition().delay(S.T * 0.8).duration(S.T).attr("width", d => rateX(Math.min(d.rate, 0.5)));
+  all.select(".hit").attr("x", d => d.cx - d.colW / 2).attr("y", 0).attr("width", d => d.colW).attr("height", d => d.top - 6)
+     .on("mousemove", (ev, d) => S.tip.show(`<div class="t">${d.name}</div><div class="r">${d.n} loans · ${d.bad} defaulted</div><div class="r">Default rate <b>${S.pct(d.rate)}</b> (baseline 11.1%)</div>`, ev))
+     .on("mouseleave", S.tip.hide);
+  all.transition().delay(S.T * 0.7).duration(S.T / 2).style("opacity", 1);
+
+  document.querySelector("#table").innerHTML =
+    `<table class="data"><tr><th>${GROUPINGS[gName].title}</th><th>Loans</th><th>Defaulted</th><th>Default rate</th></tr>` +
+    groups.map(g => `<tr><td>${g.name}</td><td>${g.n}</td><td>${g.bad}</td><td>${S.pct(g.rate)}</td></tr>`).join("") + "</table>";
+}
+
+S.initTheme();
+S.start({ steps, render });
+</script>
+</body>
+</html>

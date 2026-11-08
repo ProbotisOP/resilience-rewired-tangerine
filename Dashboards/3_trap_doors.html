@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Which Signs Are Missed?</title>
+<link rel="stylesheet" href="shared/story.css">
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <a class="crumb" href="index.html">← All dashboards</a>
+    <button id="theme" class="theme-btn"></button>
+  </div>
+  <h1>Which warning signs does the bank miss?</h1>
+  <p class="lede">Three places where trouble hides in plain sight in the bank's own tables: overdraft penalties,
+    car-leasing contracts, and loan payments the loan book has never heard of.</p>
+
+  <div class="stage">
+    <aside class="panel narrative">
+      <div id="narrative-content" class="fade-swap"></div>
+      <div class="controls">
+        <div class="btns">
+          <button id="prev" class="btn">← Back</button>
+          <button id="play" class="btn">▶ Play</button>
+          <button id="next" class="btn primary">Next →</button>
+          <span id="counter" class="counter"></span>
+        </div>
+        <div id="dots" class="dots"></div>
+        <div class="hint">← → keys to step · Space to autoplay · hover any mark</div>
+      </div>
+    </aside>
+
+    <section class="panel chart-card">
+      <div class="chart-head">
+        <div id="chart-title" class="chart-title"></div>
+        <div id="legend" class="legend"></div>
+      </div>
+      <svg id="viz" class="viz" viewBox="0 0 900 560" role="img" aria-label="Trap door charts"></svg>
+      <details class="extra"><summary>Show the numbers as a table</summary><div id="table"></div></details>
+    </section>
+  </div>
+</div>
+
+<script src="lib/d3.min.js"></script>
+<script src="data/data.js"></script>
+<script src="shared/story.js"></script>
+<script>
+const D = window.DATA, S = Story;
+const P = D.penalty, LZ = D.leasing, X = D.external, REP = D.report;
+const penBad = (P.status.B || 0) + (P.status.D || 0);
+const k = v => "$" + (v >= 1000 ? (v / 1000).toFixed(1) + "k" : Math.round(v));
+const lease = { yes: LZ.True, no: LZ.False };
+
+const steps = [
+  /* ---------------- #8 penalty spiral ---------------- */
+  { scene: "pen", layout: "cloud", kicker: "Discovery #8 · The Penalty Spiral",
+    title: `${P.accounts} accounts were charged penalty interest.`,
+    body: `<p>When a balance goes below zero, the bank charges <b>penalty interest</b>. Each dot is one account that was charged it at least once.</p>
+           <p>They were charged <b>${P.mean_hits} times</b> on average. One account was hit <b>${P.max_hits} times</b>.</p>`,
+    stats: [{ v: P.accounts, l: "accounts penalized" }, { v: P.mean_hits, l: "penalties per account (avg)" }],
+    change: "Dots gather into one block, one per penalized account. We don't know their outcome yet, so they are all grey.",
+    note: `The transactions file we have stops on ${D.totals.tx_last_date}, so these counts are lower than the report's (264 accounts, 80 with loans). The rates match closely.` },
+
+  { scene: "pen", layout: "loans", kicker: "Discovery #8 · The Penalty Spiral",
+    title: `${P.with_loans} of them were also repaying a loan.`,
+    body: `<p>Most penalized accounts have no loan. We set those aside and follow the <b>${P.with_loans}</b> that do.</p>`,
+    stats: [{ v: P.with_loans, l: "penalized borrowers" }],
+    change: `The block split. ${P.accounts - P.with_loans} accounts without a loan <b>faded and moved left</b>. The ${P.with_loans} borrowers moved right into their own block.` },
+
+  { scene: "pen", layout: "status", kicker: "Discovery #8 · The Penalty Spiral",
+    title: `${S.pct(penBad / P.with_loans, 0)} of penalized borrowers defaulted.`,
+    body: `<p>Now we color the borrowers by loan status. <b>${penBad} of ${P.with_loans}</b> are in default: <b>${P.status.D}</b> running and behind (D), <b>${P.status.B}</b> finished unpaid (B).</p>
+           <p>Across all loans, the default rate is 11%. Among penalized borrowers it is <b>${S.pct(penBad / P.with_loans, 0)}</b>.</p>`,
+    stats: [{ v: S.pct(penBad / P.with_loans, 0), l: "defaulted (B or D)", c: "--s2" }, { v: (P.status.A || 0) + (P.status.C || 0), l: "healthy (A or C)", c: "--s1" }],
+    change: "The borrower block <b>broke into four stacks</b>, one per loan status. Orange (D and B) towers over the two tiny blue stacks.",
+    note: "Report figure: 72 of 80 = 90%. Reproduced here on the shorter file: same story." },
+
+  { scene: "time", kicker: "Discovery #8 · Which came first?",
+    title: "Penalties are a symptom, and an early one.",
+    body: `<p>Penalty interest is only charged <b>after</b> a balance is already negative. So these penalties don't prove the bank <i>causes</i> defaults. Many borrowers were already in trouble.</p>
+           <p>What matters is <b>timing</b>. The penalty shows up in the transaction feed the same day. Loan status only changes after missed payments pile up. That makes the penalty an <b>early alarm</b>.</p>`,
+    change: "The chart became a timeline. Each milestone lights up in order. The orange window marks when the bank already knows something is wrong but the loan book still says \"fine\".",
+    note: "Product idea from the report: swap repeated penalties for a \"Resilience Freeze\", a fee waiver tied to a 3-month recovery plan." },
+
+  /* ---------------- #6 leasing ---------------- */
+  { scene: "lease", metric: "I", kicker: "Discovery #6 · The Leasing Trap",
+    title: "Customers with a lease look rich…",
+    body: `<p><b>${lease.yes.n}</b> accounts have a standing order for <b>leasing</b> (a car or equipment lease paid to someone else). Their typical income is <b>almost double</b> everyone else's.</p>`,
+    stats: [{ v: k(lease.yes.I), l: "leasing: typical income", c: "--s2" }, { v: k(lease.no.I), l: "everyone else", c: "--s1" }],
+    change: "Two bars rose: orange for leasing customers, blue for the other 4,159 accounts. The orange one is taller." },
+
+  { scene: "lease", metric: "B", kicker: "Discovery #6 · The Leasing Trap",
+    title: "…with bigger savings buffers…",
+    body: `<p>Their buffer is bigger too: <b>${k(lease.yes.B)}</b> vs <b>${k(lease.no.B)}</b>. On paper these are some of the bank's safest customers.</p>
+           <p>Not one of them holds a loan with the bank (<b>${D.leasingWithLoans}</b> loans).</p>`,
+    stats: [{ v: k(lease.yes.B), l: "leasing: typical buffer", c: "--s2" }, { v: k(lease.no.B), l: "everyone else", c: "--s1" }],
+    change: "The bars re-scaled to show the buffer. Orange is still ahead." },
+
+  { scene: "lease", metric: "neg", kicker: "Discovery #6 · The Leasing Trap",
+    title: "…yet they go overdrawn 2.4× as often.",
+    body: `<p><b>${lease.yes.neg} of ${lease.yes.n}</b> leasing accounts (${S.pct(lease.yes.neg / lease.yes.n)}) have been below zero, vs <b>${S.pct(lease.no.neg / lease.no.n)}</b> of everyone else.</p>
+           <p>A lease is a fixed payment that can't be paused. In a tight month it is paid first, and the account goes negative.</p>`,
+    stats: [{ v: S.pct(lease.yes.neg / lease.yes.n), l: "leasing: ever overdrawn", c: "--s2" }, { v: S.pct(lease.no.neg / lease.no.n), l: "everyone else", c: "--s1" }],
+    change: "The axis switched to the share of accounts ever overdrawn. Orange is ahead again, but this time <b>ahead is bad</b>.",
+    note: "χ² = 32.3, p ≈ 1×10⁻⁸ (report)." },
+
+  /* ---------------- #7 hidden loan payments ---------------- */
+  { scene: "ext", layout: "all", kicker: "Discovery #7 · The Debt Shadow",
+    title: `${X.loan_payment_orders} standing orders say "loan payment".`,
+    body: `<p>Each dot is a monthly standing order marked <b>loan payment</b>. The bank's loan book (<code>loans.csv</code>) lists only <b>${X.internal_loans}</b> loans.</p>
+           <p>So which payments don't belong to a known loan?</p>`,
+    stats: [{ v: X.loan_payment_orders, l: "loan-payment orders" }, { v: X.internal_loans, l: "loans in the loan book" }],
+    change: "717 grey dots fill the chart, one per loan-payment order." },
+
+  { scene: "ext", layout: "split", kicker: "Discovery #7 · The Debt Shadow",
+    title: `${X.external_accounts} customers pay a loan the bank can't see.`,
+    body: `<p>${X.internal_loans} orders match a loan in the book exactly. The other <b>${X.external_accounts}</b> come from accounts with <b>no loan on record</b>.</p>
+           <p>Any affordability check that relies only on the loan book would treat these customers as debt-free.</p>`,
+    stats: [{ v: X.internal_loans, l: "match a known loan", c: "--s1" }, { v: X.external_accounts, l: "no loan on record", c: "--s2" }],
+    change: `The matched orders turned blue and packed to the left. <b>${X.external_accounts} orange dots broke away</b> to the right.`,
+    note: `The report calls these "competitor bank" loans. But the bank codes on these orders (${X.bank_codes_unmatched}) are the same ones used for in-house loans (${X.bank_codes_internal}), so the lender can't be confirmed from this data.` },
+
+  { scene: "ext", layout: "bars", kicker: "Discovery #7 · The Debt Shadow",
+    title: `About ${k(X.median_payment)} a month of invisible debt, per customer.`,
+    body: `<p>Each orange dot stretched into a bar showing its <b>monthly payment</b>. The typical hidden payment is <b>${k(X.median_payment)}/month</b>. Together they total <b>${k(X.total_monthly)}/month</b>.</p>
+           <p>For the runway engine, these payments belong in fixed costs (F). For the bank, they are 35 ready-made refinancing leads.</p>`,
+    stats: [{ v: k(X.median_payment), l: "median hidden payment / month", c: "--s2" }, { v: k(X.total_monthly), l: "total / month", c: "--s2" }],
+    change: "The 35 orange dots turned into bars, sorted from smallest to largest payment. The dashed line marks the median." },
+];
+
+/* ---------- scaffolding ---------- */
+const W = 900, H = 560, M = { l: 60, r: 24, t: 40, b: 50 };
+const svg = d3.select("#viz");
+const scenes = { pen: svg.append("g"), time: svg.append("g"), lease: svg.append("g"), ext: svg.append("g") };
+Object.values(scenes).forEach(g => g.style("opacity", 0));
+function showScene(name) {
+  Object.entries(scenes).forEach(([n, g]) => g.transition().duration(S.T / 2).style("opacity", n === name ? 1 : 0)
+    .on("end", function () { d3.select(this).style("pointer-events", n === name ? "all" : "none"); }));
+}
+function grid(n, cols, x0, yBase, s) {   // bottom-up grid positions
+  return d3.range(n).map(j => ({ x: x0 + (j % cols) * s + s / 2, y: yBase - Math.floor(j / cols) * s - s / 2 }));
+}
+const labelLayer = svg.append("g");
+function labels(list) {   // list: [{id,x,y,t,cls,anchor}]
+  labelLayer.selectAll("text").data(list, d => d.id).join(
+    e => e.append("text").style("opacity", 0),
+    u => u, x => x.transition().duration(S.T / 3).style("opacity", 0).remove())
+    .attr("class", d => d.cls || "lbl").attr("text-anchor", d => d.anchor || "middle")
+    .attr("x", d => d.x).attr("y", d => d.y).text(d => d.t)
+    .style("font-size", d => d.size || null).style("font-weight", d => d.bold ? 650 : null)
+    .transition().delay(S.T * 0.7).duration(S.T / 2).style("opacity", 1);
+}
+
+/* ---------- #8 penalty dots ---------- */
+const STATUS_ORDER = ["D", "B", "A", "C"];
+const STATUS_NAME = { D: "D · running, behind", B: "B · finished, unpaid", A: "A · repaid", C: "C · on track" };
+const pen = [];
+STATUS_ORDER.forEach(s => d3.range(P.status[s] || 0).forEach(() => pen.push({ loan: true, status: s })));
+d3.range(P.accounts - P.with_loans).forEach(() => pen.push({ loan: false, status: null }));
+pen.forEach((d, i) => d.i = i);
+const penDots = scenes.pen.selectAll("circle").data(pen).join("circle").attr("r", 0).attr("cx", W / 2).attr("cy", H - M.b)
+  .style("stroke", "var(--surface)").style("stroke-width", 1)
+  .on("mousemove", (ev, d) => S.tip.show(d.loan
+      ? `<div class="t">Penalized borrower</div><div class="r">Loan status ${STATUS_NAME[d.status]}</div>`
+      : `<div class="t">Penalized account</div><div class="r">No loan with the bank</div>`, ev))
+  .on("mouseleave", S.tip.hide);
+
+function drawPen(layout) {
+  const base = H - M.b, s = 18;
+  let pos, color, lab = [];
+  if (layout === "cloud") {
+    const g = grid(pen.length, 22, W / 2 - 11 * s, base, s);
+    pos = d => g[d.i]; color = () => "var(--muted)";
+    lab = [{ id: "c1", x: W / 2, y: base - Math.ceil(pen.length / 22) * s - 16, t: `${P.accounts} accounts charged penalty interest`, cls: "callout" }];
+  } else {
+    const noLoan = pen.filter(d => !d.loan), withLoan = pen.filter(d => d.loan);
+    const gNo = grid(noLoan.length, 12, M.l, base, s);
+    noLoan.forEach((d, j) => d.p = gNo[j]);
+    if (layout === "loans") {
+      const gL = grid(withLoan.length, 10, 560, base, s);
+      withLoan.forEach((d, j) => d.p = gL[j]);
+      lab = [{ id: "n", x: M.l + 6 * s, y: base - Math.ceil(noLoan.length / 12) * s - 14, t: `${noLoan.length} without a loan`, cls: "sub" },
+             { id: "l", x: 560 + 5 * s, y: base - Math.ceil(withLoan.length / 10) * s - 14, t: `${withLoan.length} with a loan`, cls: "callout" }];
+    } else {
+      const colW = 80, x0 = 420;
+      STATUS_ORDER.forEach((st, si) => {
+        const m = withLoan.filter(d => d.status === st), g = grid(m.length, 4, x0 + si * (colW + 30), base, s);
+        m.forEach((d, j) => d.p = g[j]);
+        const top = base - Math.ceil(Math.max(m.length, 1) / 4) * s;
+        lab.push({ id: "v" + st, x: x0 + si * (colW + 30) + 2 * s, y: top - 26, t: m.length, cls: "big", size: "22px" });
+        lab.push({ id: "s" + st, x: x0 + si * (colW + 30) + 2 * s, y: base + 22, t: STATUS_NAME[st].split(" · ")[1], cls: "sub" });
+        lab.push({ id: "t" + st, x: x0 + si * (colW + 30) + 2 * s, y: top - 8, t: "status " + st, cls: "sub" });
+      });
+      lab.push({ id: "n", x: M.l + 6 * s, y: base - Math.ceil(noLoan.length / 12) * s - 14, t: `${noLoan.length} without a loan`, cls: "sub" });
+    }
+    pos = d => d.p;
+    color = d => !d.loan ? "var(--fade)" : layout === "loans" ? "var(--ink-2)" : (d.status === "B" || d.status === "D") ? "var(--s2)" : "var(--s1)";
+  }
+  penDots.transition().duration(S.T).ease(S.ease).delay(d => S.T ? (d.i % 60) * 5 : 0)
+    .attr("cx", d => pos(d).x).attr("cy", d => pos(d).y).attr("r", 7).style("fill", color);
+  labels(lab);
+}
+
+/* ---------- #8 timeline ---------- */
+const TL = [
+  { t: "Loan granted", s: "status looks fine" },
+  { t: "Balance dips below zero", s: "seen in daily transactions" },
+  { t: "Penalty interest charged", s: "first hard signal, same day", hot: true },
+  { t: "Payments missed: status D", s: "loan book finally reacts" },
+  { t: "Status B: defaulted", s: "loss realized" },
+];
+const tlX = d3.scalePoint().domain(d3.range(TL.length)).range([M.l + 40, W - M.r - 60]);
+const tlY = 300;
+scenes.time.append("rect").attr("class", "window").attr("x", tlX(2)).attr("y", tlY - 120).attr("height", 200).attr("width", 0)
+  .style("fill", "var(--accent-wash)");
+scenes.time.append("text").attr("class", "sub win-label").attr("x", (tlX(2) + tlX(3)) / 2).attr("y", tlY - 130).attr("text-anchor", "middle")
+  .text("early-warning window").style("opacity", 0);
+scenes.time.append("line").attr("x1", tlX(0)).attr("x2", tlX(0)).attr("y1", tlY).attr("y2", tlY).attr("class", "spine")
+  .style("stroke", "var(--axis)").style("stroke-width", 3);
+const tlNodes = scenes.time.selectAll("g.node").data(TL).join("g").attr("class", "node").style("opacity", 0)
+  .attr("transform", (d, i) => `translate(${tlX(i)},${tlY})`);
+tlNodes.append("circle").attr("r", 11).style("fill", d => d.hot ? "var(--s2)" : "var(--surface)")
+  .style("stroke", d => d.hot ? "var(--s2)" : "var(--ink-2)").style("stroke-width", 2.5);
+tlNodes.append("text").attr("class", "callout").attr("text-anchor", "middle").attr("y", (d, i) => i % 2 ? 44 : -28).text(d => d.t);
+tlNodes.append("text").attr("class", "sub").attr("text-anchor", "middle").attr("y", (d, i) => i % 2 ? 62 : -12).text(d => d.s);
+
+function drawTimeline() {
+  const T = S.T;
+  scenes.time.select(".spine").attr("x2", tlX(0)).transition().duration(T * 2).ease(d3.easeLinear).attr("x2", tlX(TL.length - 1));
+  tlNodes.style("opacity", 0).transition().delay((d, i) => i * T * 0.45).duration(T / 2).style("opacity", 1);
+  scenes.time.select(".window").attr("width", 0).transition().delay(T * 1.4).duration(T).attr("width", tlX(3) - tlX(2));
+  scenes.time.select(".win-label").style("opacity", 0).transition().delay(T * 2).duration(T / 2).style("opacity", 1);
+  labels([]);
+}
+
+/* ---------- #6 leasing bars ---------- */
+const LB = [{ key: "yes", name: `Leasing order (${lease.yes.n})`, c: "var(--s2)" }, { key: "no", name: `Everyone else (${lease.no.n.toLocaleString()})`, c: "var(--s1)" }];
+const lx = d3.scaleBand().domain(["yes", "no"]).range([M.l + 120, W - M.r - 120]).padding(0.35);
+const ly = d3.scaleLinear().range([H - M.b, M.t + 30]);
+const lAxis = scenes.lease.append("g").attr("class", "axis").attr("transform", `translate(${M.l},0)`);
+const lGrid = scenes.lease.append("g").attr("class", "grid").attr("transform", `translate(${M.l},0)`);
+scenes.lease.append("line").attr("x1", M.l).attr("x2", W - M.r).attr("y1", H - M.b).attr("y2", H - M.b).style("stroke", "var(--axis)");
+const lBars = scenes.lease.selectAll("rect.bar").data(LB).join("rect").attr("class", "bar").attr("rx", 4)
+  .attr("x", d => lx(d.key)).attr("width", lx.bandwidth()).attr("y", H - M.b).attr("height", 0).style("fill", d => d.c);
+const lVals = scenes.lease.selectAll("text.val").data(LB).join("text").attr("class", "val big").attr("text-anchor", "middle")
+  .style("font-size", "24px").attr("x", d => lx(d.key) + lx.bandwidth() / 2).attr("y", H - M.b);
+scenes.lease.selectAll("text.nm").data(LB).join("text").attr("class", "nm lbl").attr("text-anchor", "middle")
+  .attr("x", d => lx(d.key) + lx.bandwidth() / 2).attr("y", H - M.b + 24).text(d => d.name);
+const METRIC = {
+  I:   { f: g => g.I, fmt: k, max: 15000, t: "Typical monthly income (median I)" },
+  B:   { f: g => g.B, fmt: k, max: 35000, t: "Typical savings buffer (median B)" },
+  neg: { f: g => g.neg / g.n, fmt: v => S.pct(v), max: 0.16, t: "Share of accounts ever overdrawn" },
+};
+function drawLease(m) {
+  const Mx = METRIC[m], T = S.T;
+  ly.domain([0, Mx.max]);
+  lAxis.transition().duration(T).call(d3.axisLeft(ly).ticks(5).tickFormat(Mx.fmt).tickSize(0).tickPadding(8)).select(".domain").remove();
+  lGrid.transition().duration(T).call(d3.axisLeft(ly).ticks(5).tickSize(-(W - M.l - M.r)).tickFormat(""));
+  lBars.on("mousemove", (ev, d) => S.tip.show(`<div class="t">${d.name}</div><div class="r">${Mx.t}: <b>${Mx.fmt(Mx.f(lease[d.key]))}</b></div>`, ev)).on("mouseleave", S.tip.hide)
+    .transition().duration(T).ease(S.ease).attr("y", d => ly(Mx.f(lease[d.key]))).attr("height", d => ly(0) - ly(Mx.f(lease[d.key])));
+  // value labels ride up with the bars and count up to the new value
+  lVals.transition().duration(T).ease(S.ease).attr("y", d => ly(Mx.f(lease[d.key])) - 10)
+    .textTween(d => t => Mx.fmt(Mx.f(lease[d.key]) * t));
+  labels([{ id: "lt", x: W / 2, y: M.t + 6, t: Mx.t, cls: "callout" }]);
+}
+
+/* ---------- #7 hidden loan payments ---------- */
+const ext = d3.range(X.loan_payment_orders).map(i => ({ i, hidden: i >= X.internal_loans }));
+X.amounts.forEach((a, j) => { ext[X.internal_loans + j].amount = a; ext[X.internal_loans + j].rank = j; });
+const eDots = scenes.ext.selectAll("rect.e").data(ext).join("rect").attr("class", "e").attr("rx", 5)
+  .attr("x", W / 2).attr("y", H - M.b).attr("width", 0).attr("height", 0)
+  .style("stroke", "var(--surface)").style("stroke-width", 1)
+  .on("mousemove", (ev, d) => S.tip.show(d.hidden
+      ? `<div class="t">No loan on record</div><div class="r">Pays <b>${S.money(d.amount)}</b> every month as a "loan payment"</div>`
+      : `<div class="t">Matched order</div><div class="r">Belongs to a loan in loans.csv</div>`, ev))
+  .on("mouseleave", S.tip.hide);
+const bx = d3.scaleLinear().domain([0, 6000]).range([0, 330]);
+const medLine = scenes.ext.append("line").style("stroke", "var(--ink-2)").style("stroke-dasharray", "4 4").style("opacity", 0);
+
+function drawExt(layout) {
+  const base = H - M.b, s = 14, T = S.T;
+  const gAll = grid(ext.length, 32, W / 2 - 16 * s, base, s);
+  const gLeft = grid(X.internal_loans, 26, M.l - 20, base, s);
+  const gRight = grid(X.external_accounts, 5, 690, base, s);
+  const barTop = M.t + 50, barH = (base - barTop) / X.external_accounts;
+  eDots.transition().duration(T).ease(S.ease).delay(d => T ? (d.i % 80) * 4 : 0)
+    .attr("x", d => {
+      if (layout === "all") return gAll[d.i].x - 5;
+      if (!d.hidden) return gLeft[d.i].x - 5;
+      return layout === "split" ? gRight[d.rank].x - 5 : 480;
+    })
+    .attr("y", d => {
+      if (layout === "all") return gAll[d.i].y - 5;
+      if (!d.hidden) return gLeft[d.i].y - 5;
+      return layout === "split" ? gRight[d.rank].y - 5 : barTop + d.rank * barH + 1;
+    })
+    .attr("width", d => layout === "bars" && d.hidden ? Math.max(10, bx(d.amount)) : 10)
+    .attr("height", d => layout === "bars" && d.hidden ? Math.max(4, barH - 2) : 10)
+    .attr("rx", d => layout === "bars" && d.hidden ? 2 : 5)
+    .style("fill", d => layout === "all" ? "var(--muted)" : d.hidden ? "var(--s2)" : layout === "bars" ? "var(--fade)" : "var(--s1)");
+  medLine.transition().duration(T).style("opacity", layout === "bars" ? 1 : 0)
+    .attr("x1", 480 + bx(X.median_payment)).attr("x2", 480 + bx(X.median_payment)).attr("y1", barTop - 8).attr("y2", base);
+  const lab = layout === "all" ? [{ id: "a", x: W / 2, y: base - Math.ceil(ext.length / 32) * s - 14, t: `${X.loan_payment_orders} "loan payment" standing orders`, cls: "callout" }]
+    : layout === "split" ? [{ id: "m", x: M.l - 20 + 13 * s, y: base - Math.ceil(X.internal_loans / 26) * s - 14, t: `${X.internal_loans} match a known loan`, cls: "lbl" },
+                            { id: "h", x: 690 + 2.5 * s, y: base - Math.ceil(X.external_accounts / 5) * s - 14, t: `${X.external_accounts} with no loan on record`, cls: "callout" }]
+    : [{ id: "md", x: 480 + bx(X.median_payment), y: barTop - 14, t: `median ${k(X.median_payment)}/mo`, cls: "callout" },
+       ...[0, 2000, 4000, 6000].map(v => ({ id: "tk" + v, x: 480 + bx(v), y: base + 20, t: v ? "$" + v / 1000 + "k" : "$0", cls: "sub" })),
+       { id: "ax", x: 480 + bx(6000), y: base + 38, t: "monthly payment", cls: "sub", anchor: "end" },
+       { id: "m", x: M.l - 20 + 13 * s, y: base - Math.ceil(X.internal_loans / 26) * s - 14, t: `${X.internal_loans} matched (set aside)`, cls: "sub" }];
+  labels(lab);
+}
+
+/* ---------- step renderer ---------- */
+const TITLES = { pen: "Accounts charged penalty interest (each dot = 1 account)", time: "How a loan goes bad, in order",
+                 lease: "Leasing customers vs. everyone else", ext: "\"Loan payment\" standing orders (each dot = 1 order)" };
+function render(i) {
+  const st = steps[i];
+  showScene(st.scene);
+  S.chartTitle(TITLES[st.scene]);
+  if (st.scene === "pen") {
+    S.legend(st.layout === "status" ? [["--s2", "Defaulted (B or D)"], ["--s1", "Healthy (A or C)"], ["--fade", "No loan"]]
+           : st.layout === "loans" ? [["--ink-2", "Has a loan"], ["--fade", "No loan"]] : [["--muted", "Penalized account"]]);
+    drawPen(st.layout);
+    table([["", "Accounts"], ["Charged penalty interest", P.accounts], ["…with a loan", P.with_loans],
+           ...STATUS_ORDER.map(s => ["   status " + STATUS_NAME[s], P.status[s] || 0])]);
+  } else if (st.scene === "time") {
+    S.legend([["--s2", "First hard signal"]]); drawTimeline(); table([["Milestone", "What the bank sees"], ...TL.map(d => [d.t, d.s])]);
+  } else if (st.scene === "lease") {
+    S.legend([["--s2", "Has a leasing standing order"], ["--s1", "Everyone else"]]); drawLease(st.metric);
+    table([["", "Leasing", "Everyone else"], ["Accounts", lease.yes.n, lease.no.n], ["Median income", k(lease.yes.I), k(lease.no.I)],
+           ["Median buffer", k(lease.yes.B), k(lease.no.B)], ["Ever overdrawn", S.pct(lease.yes.neg / lease.yes.n), S.pct(lease.no.neg / lease.no.n)], ["Bank loans held", D.leasingWithLoans, "—"]]);
+  } else {
+    S.legend(st.layout === "all" ? [["--muted", "Loan-payment order"]] : [["--s1", "Matches a loan in the book"], ["--s2", "No loan on record"]]);
+    drawExt(st.layout);
+    table([["", "Value"], ["Loan-payment standing orders", X.loan_payment_orders], ["Loans in loans.csv", X.internal_loans],
+           ["Accounts paying a loan the book doesn't have", X.external_accounts], ["Median hidden payment / month", S.money(X.median_payment)], ["Total hidden payments / month", S.money(X.total_monthly)]]);
+  }
+}
+function table(rows) {
+  document.querySelector("#table").innerHTML = `<table class="data">` +
+    rows.map((r, i) => `<tr>${r.map(c => i ? `<td>${c}</td>` : `<th>${c}</th>`).join("")}</tr>`).join("") + "</table>";
+}
+
+S.initTheme();
+S.start({ steps, render });
+</script>
+</body>
+</html>
