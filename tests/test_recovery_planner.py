@@ -101,6 +101,18 @@ def test_optimizer_validates_inputs():
         build_resilience_gap_plan(1000, 500, 3, -1)
 
 
+def test_backup_plan_separates_depleted_buffer_from_monthly_improvement():
+    plan = build_resilience_gap_plan(
+        buffer=-1500.0,
+        monthly_gap=2000.0,
+        target_months=6,
+        selected_monthly_adjustment=1000.0,
+    )
+    assert plan.required_monthly_improvement == 2000.0
+    assert plan.additional_buffer_needed == 7500.0
+    assert plan.proposed_runway_months == 0.0
+
+
 def test_backup_plan_does_not_assume_cash_is_discretionary_or_relief_is_approved():
     baseline = make_baseline(running_loan=True)
     shock = simulate_shock(baseline, PRESET_DICT["JOB_LOSS_EI_55"])

@@ -52,6 +52,7 @@ class ResilienceGapPlan:
     available_buffer: float
     target_months: int
     required_monthly_improvement: float
+    additional_buffer_needed: float
     selected_monthly_adjustment: float
     proposed_monthly_gap: float
     current_runway_months: float
@@ -160,13 +161,20 @@ def build_resilience_gap_plan(
     if selected_monthly_adjustment < 0:
         raise ValueError("selected_monthly_adjustment cannot be negative")
 
-    required = max(0.0, monthly_gap - buffer / target_months)
+    # Monthly improvement cannot repair an already depleted buffer. Keep that
+    # immediate need separate from the recurring cash-flow improvement.
+    required = max(0.0, monthly_gap - max(0.0, buffer) / target_months)
     proposed_gap = monthly_gap - selected_monthly_adjustment
+    additional_buffer_needed = max(
+        0.0,
+        (max(0.0, proposed_gap) * target_months) - buffer,
+    )
     return ResilienceGapPlan(
         current_monthly_gap=round(monthly_gap, 2),
         available_buffer=round(buffer, 2),
         target_months=target_months,
         required_monthly_improvement=round(required, 2),
+        additional_buffer_needed=round(additional_buffer_needed, 2),
         selected_monthly_adjustment=round(selected_monthly_adjustment, 2),
         proposed_monthly_gap=round(proposed_gap, 2),
         current_runway_months=calculate_runway(buffer, monthly_gap),

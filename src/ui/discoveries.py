@@ -1,7 +1,7 @@
 """Screen 5: Reproducible, denominator-explicit portfolio observations."""
 
 import streamlit as st
-import plotly.express as px
+from src.ui.charting import axis_style, base_options, render_chart
 
 from src.data.local_repository import LocalDataRepository
 from src.services.discovery_engine import (
@@ -14,97 +14,106 @@ from src.services.discovery_engine import (
 def render_discoveries(repo: LocalDataRepository):
     st.markdown("## 🔎 What the data shows")
     st.caption(
-        "Patterns in this dataset can raise useful questions. They do not prove causes "
-        "or predict what will happen to an individual account."
+        "Use these comparisons to spot questions worth exploring. They do not explain why something happened "
+        "or predict what will happen to a person."
     )
 
     tab1, tab2, tab3 = st.tabs(
         [
             "Before a loan",
             "Income what-if",
-            "Group comparisons",
+            "Other comparisons",
         ]
     )
 
     with tab1:
         pre_data = get_preloan_early_warning_data(repo)
-        st.subheader("Buffer before a loan and the recorded outcome")
+        st.subheader("Savings before a loan and its recorded status")
         st.markdown(
-            f"The eligible cohort contains **{pre_data['cohort_size']:,} of "
-            f"{pre_data.get('eligible_loan_count', 0):,} loans**, each with six available "
-            f"monthly records before the loan-start month. Records span "
+            f"We can compare **{pre_data['cohort_size']:,} of "
+            f"{pre_data.get('eligible_loan_count', 0):,} loans** because each has at least six "
+            f"monthly records before the loan began. Records span "
             f"{pre_data.get('window_start', 'not available')} to "
             f"{pre_data.get('window_end', 'not available')}; the exact six-month window varies by loan."
         )
         st.markdown(
-            "### The story in plain language\n"
-            "Among loans with enough earlier account history, compare the recorded outcome "
-            "rates for the lowest and highest pre-loan buffer groups. This can motivate a "
-            "customer-controlled resilience conversation—but it is not evidence that a buffer "
-            "causes a loan outcome or a basis for an automated credit decision."
+            "### What this comparison can tell us\n"
+            "Among loans with enough earlier account history, we compare recorded outcomes for "
+            "accounts with smaller and larger savings buffers. This can help start a customer-led "
+            "conversation. It cannot show that the buffer caused the outcome or support an automated credit decision."
         )
         st.warning(
-            "This is an association with the supplied default flag (B or D). Running loans "
-            "are not completed outcomes; the analysis does not show that low buffers cause default."
+            "The source data marks some loans as defaulted (B or D). Other loans may still be active. "
+            "This comparison does not show that a smaller buffer causes default."
         )
 
         q_df = pre_data["quartile_summary"]
         if not q_df.empty:
+            q_df = q_df.copy()
+            q_df["buffer_quartile"] = q_df["buffer_quartile"].astype(str).replace(
+                {
+                    "Q1 (Lowest Buffer)": "Smallest savings buffer",
+                    "Q2": "Lower-middle savings buffer",
+                    "Q3": "Upper-middle savings buffer",
+                    "Q4 (Highest Buffer)": "Largest savings buffer",
+                }
+            )
             lowest_buffer = q_df.loc[
-                q_df["buffer_quartile"] == "Q1 (Lowest Buffer)"
+                q_df["buffer_quartile"] == "Smallest savings buffer"
             ]
             highest_buffer = q_df.loc[
-                q_df["buffer_quartile"] == "Q4 (Highest Buffer)"
+                q_df["buffer_quartile"] == "Largest savings buffer"
             ]
             if not lowest_buffer.empty and not highest_buffer.empty:
                 q1, q4 = lowest_buffer.iloc[0], highest_buffer.iloc[0]
                 rate_cols = st.columns(2)
                 rate_cols[0].metric(
-                    "Lowest-buffer group · recorded default flag",
+                    "Smaller savings group · marked default",
                     f"{q1['default_rate']:.1f}%",
                     f"{int(q1['defaults'])} of {int(q1['loans'])} loans",
                 )
                 rate_cols[1].metric(
-                    "Highest-buffer group · recorded default flag",
+                    "Larger savings group · marked default",
                     f"{q4['default_rate']:.1f}%",
                     f"{int(q4['defaults'])} of {int(q4['loans'])} loans",
                 )
             left, right = st.columns(2)
             with left:
-                st.markdown("**Recorded default rate by pre-loan buffer quartile**")
-                fig_q = px.bar(
-                    q_df,
-                    x="buffer_quartile",
-                    y="default_rate",
-                    color="default_rate",
-                    text="default_rate",
-                    color_continuous_scale=["#2A9D8F", "#E63946"],
+                st.markdown("**Share marked as default by earlier savings level**")
+                quartile_options = base_options()
+                quartile_options.update(
+                    {
+                        "grid": {"left": 16, "right": 30, "top": 50, "bottom": 32, "containLabel": True},
+                        "xAxis": {"type": "value", "name": "Recorded defaulted loans (%)", "min": 0, "max": 100, "axisLabel": {"color": "#8D99AE", "formatter": "{value}%"}, "splitLine": {"lineStyle": {"color": "rgba(141,153,174,.16)"}}},
+                        "yAxis": {"type": "category", "data": q_df["buffer_quartile"].astype(str).tolist(), "axisLabel": {"color": "#8D99AE"}, **{k: v for k, v in axis_style().items() if k not in ("axisLabel", "splitLine")}},
+                        "series": [{
+                            "name": "Recorded default rate",
+                            "type": "bar",
+                            "barMaxWidth": 32,
+                            "data": q_df["default_rate"].round(1).tolist(),
+                            "itemStyle": {"color": "#FF5B00", "borderRadius": [0, 5, 5, 0]},
+                            "label": {"show": True, "position": "right", "color": "#F8F9FA", "formatter": "{c}%"},
+                            "emphasis": {"focus": "series"},
+                        }],
+                    }
                 )
-                fig_q.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
-                fig_q.update_layout(
-                    template="plotly_dark",
-                    paper_bgcolor="rgba(0,0,0,0)",
-                    plot_bgcolor="rgba(0,0,0,0)",
-                    xaxis_title="",
-                    yaxis_title="Observed defaulted loans (%)",
-                    coloraxis_showscale=False,
-                )
-                st.plotly_chart(fig_q, use_container_width=True)
+                quartile_options["tooltip"]["trigger"] = "item"
+                render_chart(quartile_options, key="discovery-preloan-default-rate", height=380)
             with right:
                 display_quartiles = q_df.rename(
                     columns={
-                        "buffer_quartile": "Pre-loan buffer group",
-                        "loans": "Loans in group",
-                        "defaults": "Recorded defaults (B/D)",
-                        "default_rate": "Recorded default rate",
-                        "median_buffer": "Median pre-loan buffer",
+                        "buffer_quartile": "Savings before loan began",
+                        "loans": "Loans included",
+                        "defaults": "Loans marked as default",
+                        "default_rate": "Share marked as default",
+                        "median_buffer": "Middle savings balance before loan",
                     }
                 )
                 st.dataframe(
                     display_quartiles.style.format(
                         {
-                            "Recorded default rate": "{:.1f}%",
-                            "Median pre-loan buffer": "${:,.2f}",
+                            "Share marked as default": "{:.1f}%",
+                            "Middle savings balance before loan": "${:,.2f}",
                         }
                     ),
                     use_container_width=True,
@@ -138,48 +147,57 @@ def render_discoveries(repo: LocalDataRepository):
                 hide_index=True,
             )
         st.caption(
-            "Denominators are loans in each displayed group. The six records are the latest "
-            "available monthly rows before loan start; month continuity is not independently asserted."
+            "Each group's totals show how many loans are included. We use the six latest available "
+            "monthly records before the loan began; they may not be consecutive months."
         )
 
     with tab2:
         deciles = get_income_decile_discovery(repo).rename(
             columns={
                 "Income Decile": "Money-in Group",
-                "Median Income": "Median Money-in",
-                "Median Runway (EI 55%)": "Median Runway (55% money-in)",
+                "Median Income": "Middle monthly money in",
+                "Median Runway (EI 55%)": "Middle estimated coverage (months)",
             }
         )
-        st.subheader("Runway in a 55% money-in what-if")
+        decile_names = {
+            f"D{i}": label
+            for i, label in enumerate(
+                [
+                    "Lowest usual money-in group", "Group 2", "Group 3", "Group 4", "Group 5",
+                    "Group 6", "Group 7", "Group 8", "Group 9", "Highest usual money-in group",
+                ],
+                start=1,
+            )
+        }
+        deciles["Money-in Group"] = deciles["Money-in Group"].astype(str).replace(decile_names)
+        st.subheader("What if recorded money-in fell to 55%?")
         st.markdown(
-            "Accounts are split into ten groups using account-level median `money_in`. "
-            "For each account, the deterministic Judge Match formula is recalculated with "
-            "income set to 55% of median money-in; this is a simulation, not observed layoff data."
+            "We sort accounts by their usual monthly money-in and split them into ten similarly sized groups. "
+            "Then we recalculate each account with money-in set to 55% of usual. This is a what-if, "
+            "not observed job-loss data or verified employment income."
         )
         if not deciles.empty:
             bottom, top = deciles.iloc[0], deciles.iloc[-1]
             st.markdown(
-                "### The story in plain language\n"
-                "The same simulated money-in change does not produce the same runway across "
-                "groups. Recorded buffers and spending also differ, so money-in alone does not "
-                "explain the result."
+                "### What stands out\n"
+                "The same money-in change gives different results across groups. Savings buffers "
+                "and spending matter too, so income alone does not explain the result."
             )
             story_cols = st.columns(2)
             story_cols[0].metric(
-                f"{bottom['Money-in Group']} · median simulated runway",
-                f"{bottom['Median Runway (55% money-in)']:.1f} months",
+                f"{bottom['Money-in Group']} · estimated coverage",
+                f"{bottom['Middle estimated coverage (months)']:.1f} months",
                 f"{int(bottom['Accounts Below 6 Months'])} of {int(bottom['Accounts'])} below 6 months",
             )
             story_cols[1].metric(
-                f"{top['Money-in Group']} · median simulated runway",
-                f"{top['Median Runway (55% money-in)']:.1f} months",
+                f"{top['Money-in Group']} · estimated coverage",
+                f"{top['Middle estimated coverage (months)']:.1f} months",
                 f"{int(top['Accounts Below 6 Months'])} of {int(top['Accounts'])} below 6 months",
             )
             st.info(
-                "Business idea to test: use this kind of transparent, customer-selected "
-                "stress conversation to explore buffer and spending context—not to score, "
-                "approve or price credit. This dataset does not measure customer uptake or "
-                "business impact."
+                "Business opportunity to explore: offer customers a clear way to discuss savings buffers "
+                "and spending under different what-ifs. This dataset does not measure customer interest "
+                "or business impact, and these results are not for credit decisions."
             )
             if st.button(
                 "Try a what-if with an account",
@@ -188,29 +206,29 @@ def render_discoveries(repo: LocalDataRepository):
             ):
                 st.query_params["page"] = "what-if"
                 st.rerun()
-        fig = px.bar(
-            deciles,
-            x="Money-in Group",
-            y="% Below 6 Months",
-            color="% Below 6 Months",
-            text="% Below 6 Months",
-            color_continuous_scale=["#2A9D8F", "#E63946"],
+        decile_options = base_options(zoom=True)
+        decile_options.update(
+            {
+                "grid": {"left": 20, "right": 20, "top": 48, "bottom": 76, "containLabel": True},
+                "xAxis": {"type": "category", "name": "Usual monthly money coming in (group)", "nameLocation": "middle", "nameGap": 28, "data": deciles["Money-in Group"].astype(str).tolist(), "axisLabel": {"color": "#8D99AE", "interval": 0}, **{k: v for k, v in axis_style().items() if k != "axisLabel"}},
+                "yAxis": {"type": "value", "name": "Below six months (%)", "min": 0, "max": 100, "axisLabel": {"color": "#8D99AE", "formatter": "{value}%"}, "splitLine": {"lineStyle": {"color": "rgba(141,153,174,.16)"}}},
+                "series": [{
+                    "name": "Below six months",
+                    "type": "bar",
+                    "barMaxWidth": 36,
+                    "data": deciles["% Below 6 Months"].round(1).tolist(),
+                    "itemStyle": {"color": "#FF5B00", "borderRadius": [5, 5, 0, 0]},
+                    "label": {"show": True, "position": "top", "color": "#F8F9FA", "formatter": "{c}%"},
+                    "emphasis": {"focus": "series", "itemStyle": {"shadowBlur": 12, "shadowColor": "rgba(255,91,0,.3)"}},
+                }],
+            }
         )
-        fig.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
-        fig.update_layout(
-            template="plotly_dark",
-            paper_bgcolor="rgba(0,0,0,0)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            xaxis_title="Account-level median money-in decile",
-            yaxis_title="Accounts below six months of runway (%)",
-            coloraxis_showscale=False,
-        )
-        st.plotly_chart(fig, use_container_width=True)
+        render_chart(decile_options, key="discovery-income-decile-runway", height=440)
         st.dataframe(
             deciles.style.format(
                 {
-                    "Median Money-in": "${:,.2f}",
-                    "Median Runway (55% money-in)": "{:.1f}",
+                    "Middle monthly money in": "${:,.2f}",
+                    "Middle estimated coverage (months)": "{:.1f}",
                     "% Below 6 Months": "{:.1f}%",
                 }
             ),
@@ -218,18 +236,17 @@ def render_discoveries(repo: LocalDataRepository):
             hide_index=True,
         )
         st.caption(
-            f"Denominator: {int(deciles['Accounts'].sum()):,} accounts, "
-            f"{int(deciles['Accounts'].iloc[0]):,} in each decile. Account history spans "
-            "available monthly records in 2020–2025; money-in is not verified employment income. "
-            "Runway threshold counts use one-decimal official values."
+            f"This comparison includes {int(deciles['Accounts'].sum()):,} accounts, "
+            f"about {int(deciles['Accounts'].iloc[0]):,} in each group. Account history spans "
+            "available monthly records in 2020–2025. Money coming in is not verified employment pay."
         )
         with st.expander("🧾 How this chart is calculated"):
             st.markdown(
                 """
-                1. Calculate each account's median monthly money in.
-                2. Split the accounts into ten equal-sized groups, ordered from lowest to highest median money in.
+                1. Find each account's middle monthly money-in amount.
+                2. Split the accounts into ten similar-sized groups, from lowest to highest usual money in.
                 3. For each account, multiply its median money in by **55%**; leave its typical spending and buffer unchanged.
-                4. Recalculate the challenge runway, round it to one decimal, and count accounts below six months.
+                4. Recalculate estimated buffer coverage, round it to one decimal, and count accounts below six months.
                 5. Divide that count by the accounts in the group to get the displayed percentage.
 
                 This is a fixed scenario applied to recorded money in—not a measured job-loss or benefit outcome.
@@ -237,27 +254,24 @@ def render_discoveries(repo: LocalDataRepository):
             )
 
     with tab3:
-        st.subheader("How account groups compare")
+        st.subheader("Other account comparisons")
         st.markdown(
-            "The tables report raw group denominators and outcomes from accounts, dispositions, "
-            "cards, loans, monthly summaries and standing orders. Account-history measures use "
-            "each account's available monthly rows (2020–2025); the standing-order file is an "
-            "undated snapshot."
+            "These tables summarize the account, card, loan and payment records provided. Monthly history "
+            "covers available records from 2020–2025. Payment instructions are an undated snapshot."
         )
         st.caption(
-            "For grouped tables, negative-balance account rates are accounts with at least one "
-            "recorded month containing below-zero days divided by accounts in that group. "
-            "Loan-default rates are recorded B/D loans divided by supplied loans in that group; "
-            "running C/D loans are not completed outcomes. Sample sizes are shown in each table."
+            "For each group, the tables show how many accounts or loans are included. A below-zero month means "
+            "the record shows days when the balance was below zero. Loan statuses B/D are counted as marked defaults; "
+            "some loans may still be active. Group differences do not establish cause."
         )
         tables = get_behavioral_association_tables(repo)
 
         title_by_key = {
-            "authorized_user": "Authorized-user account association (not a spouse/partner label)",
-            "statement_frequency": "Statement frequency: negative-balance association and loan outcomes shown separately",
-            "card": "Card on owner disposition: loan outcome association",
-            "cash_deposit_reliance": "Cash Deposit Reliance among loan accounts",
-            "leasing_order": "Leasing-labelled standing order vs. negative-balance days",
+            "authorized_user": "Accounts with an authorized user listed",
+            "statement_frequency": "Statement frequency, below-zero balances and loan status",
+            "card": "Card records and loan status",
+            "cash_deposit_reliance": "Cash deposits and recorded loan status",
+            "leasing_order": "Payment instructions labelled as leasing",
         }
         for key in ("authorized_user", "statement_frequency", "card"):
             table = tables[key].copy()
@@ -288,21 +302,24 @@ def render_discoveries(repo: LocalDataRepository):
             )
 
         cash = tables["cash_deposit_reliance"].copy()
+        cash["cash_deposit_reliance_quartile"] = cash["cash_deposit_reliance_quartile"].replace(
+            {"Q1 (Lowest)": "Lowest cash-deposit share", "Q2": "Lower-middle share", "Q3": "Upper-middle share", "Q4 (Highest)": "Highest cash-deposit share"}
+        )
         cash = cash.rename(
             columns={
                 "cash_deposit_reliance_quartile": "Cash-deposit share group",
-                "loans": "Loans in group",
-                "defaults": "Recorded defaults (B/D)",
-                "median_cash_deposit_share": "Median cash-deposit share",
-                "default_rate_pct": "Recorded default rate",
+                "loans": "Loans included",
+                "defaults": "Loans marked as default",
+                "median_cash_deposit_share": "Middle cash-deposit share",
+                "default_rate_pct": "Share marked as default",
             }
         )
         st.markdown(f"**{title_by_key['cash_deposit_reliance']}**")
         st.dataframe(
             cash.style.format(
                 {
-                    "Median cash-deposit share": "{:.1%}",
-                    "Recorded default rate": "{:.1f}%",
+                    "Middle cash-deposit share": "{:.1%}",
+                    "Share marked as default": "{:.1f}%",
                 }
             ),
             use_container_width=True,
@@ -328,18 +345,17 @@ def render_discoveries(repo: LocalDataRepository):
         )
 
         external = tables["external_destination_instructions"].iloc[0]
-        st.markdown("**External-destination loan-payment instructions**")
+        st.markdown("**Loan-payment instructions to another provider**")
         st.write(
-            f"{int(external['standing_order_rows']):,} standing-order rows are labelled "
+            f"{int(external['standing_order_rows']):,} scheduled-payment instructions are labelled "
             f"loan payment, affecting {int(external['accounts_with_instruction']):,} accounts; "
             f"{int(external['accounts_without_internal_loan']):,} such accounts have no loan "
             "record in this dataset. These are instructions to external destinations, not "
             "confirmation of outstanding external debt."
         )
         st.caption(
-            "Loan denominators include all supplied loan records; B and D contribute to the "
-            "defaulted flag, and C/D loans may still be running. Group differences are descriptive, "
-            "unadjusted and non-causal."
+            "Loan totals include all supplied loan records. The source marks B and D as defaults; "
+            "some C/D loans may still be active. Differences between groups do not explain cause."
         )
 
         with st.expander("Claims removed from the judging narrative"):

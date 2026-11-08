@@ -26,9 +26,8 @@ st.markdown("""
     }
 
     .block-container {
-        max-width: 1440px;
-        padding-top: 2rem;
-        padding-bottom: 3rem;
+        max-width: 1500px;
+        padding: 1.5rem clamp(1rem, 3vw, 2.75rem) 3rem;
     }
     
     /* Top Header & Accents */
@@ -48,18 +47,53 @@ st.markdown("""
         color: #FF5B00 !important;
         font-size: 26px !important;
         font-weight: 700 !important;
+        white-space: normal !important;
+        overflow: visible !important;
+        text-overflow: clip !important;
+        overflow-wrap: anywhere;
     }
     [data-testid="stMetricLabel"] {
         color: #8D99AE !important;
         font-size: 13px !important;
         font-weight: 500 !important;
+        white-space: normal !important;
+        overflow: visible !important;
+        text-overflow: clip !important;
     }
 
     [data-testid="stMetric"] {
-        background: linear-gradient(145deg, #16203D, #121B36);
+        background: linear-gradient(145deg, rgba(28, 37, 65, .96), rgba(18, 27, 54, .96));
         border: 1px solid #263557;
-        border-radius: 12px;
-        padding: 14px 16px;
+        border-radius: 14px;
+        padding: 16px 18px;
+        min-height: 116px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, .12);
+    }
+
+    [data-testid="stMetricLabel"] *, [data-testid="stMetricValue"] * {
+        white-space: normal !important;
+        overflow: visible !important;
+        text-overflow: clip !important;
+    }
+    [data-testid="stMetricLabel"] p { line-height: 1.4; }
+    [data-testid="stPlotlyChart"] {
+        border: 1px solid rgba(58, 79, 122, .55);
+        border-radius: 14px;
+        overflow: hidden;
+        background: rgba(18, 27, 54, .35);
+    }
+    .stMarkdown p, [data-testid="stCaptionContainer"] { line-height: 1.6; }
+    @media (max-width: 900px) {
+        .block-container { padding-top: 1rem; }
+        [data-testid="stMetric"] { min-height: 104px; padding: 13px 14px; }
+        [data-testid="stMetricValue"] { font-size: 22px !important; }
+    }
+    @media (max-width: 600px) {
+        .block-container { padding-left: .75rem; padding-right: .75rem; }
+        [data-testid="stMetric"] { min-height: 92px; padding: 11px 12px; }
+        [data-testid="stMetricValue"] { font-size: 19px !important; }
+        h1 { font-size: 1.75rem !important; }
+        h2 { font-size: 1.45rem !important; }
     }
 
     [data-testid="stAlert"] {
@@ -116,13 +150,13 @@ from src.ui.methodology import render_methodology
 from config.settings import THEME
 
 PAGE_OPTIONS = [
-    "🏠 Portfolio snapshot",
+    "🏠 Portfolio overview",
     "👤 Explore an account",
-    "🎲 Try a what-if",
-    "🧭 Build a resilience plan",
-    "🔎 What the data shows",
-    "💬 Ask the data",
-    "🧮 How we calculate it",
+    "🎲 Test a what-if",
+    "🧭 Savings & shock plan",
+    "🔎 Explore portfolio patterns",
+    "💬 Ask about the data",
+    "🧮 How the figures are worked out",
 ]
 PAGE_SLUGS = {
     PAGE_OPTIONS[0]: "portfolio",
@@ -187,26 +221,26 @@ def main():
         )
 
         st.markdown("---")
-        st.markdown("### Account in focus")
+        st.markdown("### Account selected")
         active_id = st.session_state["active_account_id"]
         st.info(f"**Selected Account:** #{active_id}")
         
-        st.caption("You can switch accounts from “Explore an account” or “Try a what-if.”")
+        st.caption("Change the selected account from “Explore an account” or “Test a what-if.”")
 
     # Page Routing
-    if page == "🏠 Portfolio snapshot":
+    if page == "🏠 Portfolio overview":
         render_overview(repo)
     elif page == "👤 Explore an account":
         render_customer_explorer(repo)
-    elif page == "🎲 Try a what-if":
+    elif page == "🎲 Test a what-if":
         render_shock_simulator(repo)
-    elif page == "🧭 Build a resilience plan":
+    elif page == "🧭 Savings & shock plan":
         render_recovery_planner(repo)
-    elif page == "🔎 What the data shows":
+    elif page == "🔎 Explore portfolio patterns":
         render_discoveries(repo)
-    elif page == "💬 Ask the data":
+    elif page == "💬 Ask about the data":
         render_ai_advisor(repo)
-    elif page == "🧮 How we calculate it":
+    elif page == "🧮 How the figures are worked out":
         render_methodology()
 
 if __name__ == "__main__":

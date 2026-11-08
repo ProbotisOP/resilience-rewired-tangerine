@@ -13,33 +13,36 @@ from src.ui.presentation import scenario_display_name
 
 
 def render_ai_advisor(repo: LocalDataRepository):
-    st.markdown("## 💬 Ask the data")
+    st.markdown("## 💬 Ask about this account")
     st.caption(
-        "Get a plain-language explanation of this account's available numbers. The calculations "
-        "stay in Python; optional Gemini can only rephrase the verified results."
+        "Get a plain-language explanation of the figures available for this account. Optional AI can help explain them; it does not calculate or change the results."
     )
 
     account_id = st.session_state.get("active_account_id")
     if account_id not in repo.get_all_accounts():
         st.error("Select an account from the supplied directory before opening the advisor.")
         return
-    profile = get_customer_profile(account_id, repo)
+    monthly_df = repo.get_monthly_summary(account_id)
+    account_meta = repo.get_account_meta(account_id)
+    if account_meta is None or monthly_df.empty:
+        st.error(f"Account #{account_id} has no usable profile in the loaded data.")
+        return
+    baseline = compute_official_baseline(
+        account_id,
+        monthly_df,
+        account_meta,
+    )
+    profile = get_customer_profile(account_id, repo, account_meta=account_meta, baseline=baseline)
     if not profile:
         st.error(f"Account #{account_id} has no usable profile in the loaded data.")
         return
-
-    baseline = compute_official_baseline(
-        account_id,
-        repo.get_monthly_summary(account_id),
-        repo.get_account_meta(account_id),
-    )
     preset_idx = st.session_state.get("active_preset_idx", 1)
     if not isinstance(preset_idx, int) or not 0 <= preset_idx < len(OFFICIAL_PRESETS):
         preset_idx = 1
     scenario = OFFICIAL_PRESETS[preset_idx]
     shock = simulate_shock(baseline, scenario)
     goal = build_goal_plan(baseline, target_months=3)
-    backup = build_backup_plan(baseline, shock, repo.get_account_meta(account_id))
+    backup = build_backup_plan(baseline, shock, account_meta)
     narrative = get_ai_narrative(profile, baseline, shock, goal, backup)
 
     st.markdown(f"### Account #{account_id} · {scenario_display_name(scenario)}")
@@ -50,7 +53,7 @@ def render_ai_advisor(repo: LocalDataRepository):
         st.write(narrative["ai_explanation"])
     st.caption(narrative["ai_status"])
 
-    st.markdown("#### The numbers behind this explanation")
+    st.markdown("#### The figures behind this answer")
     metric_cols = st.columns(4)
     metric_cols[0].metric("Typical money in", f"${baseline.I:,.2f}/mo")
     metric_cols[1].metric("Typical spending", f"${baseline.S:,.2f}/mo")

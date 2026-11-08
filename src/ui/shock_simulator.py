@@ -5,7 +5,7 @@ Implements official competition shock cards, custom sliders, and adaptive runway
 
 import math
 import streamlit as st
-import plotly.graph_objects as go
+from src.ui.charting import axis_style, base_options, render_chart
 
 from src.data.local_repository import LocalDataRepository
 from src.services.customer_profile import get_customer_profile
@@ -66,46 +66,68 @@ def _timeline_figure(
         "Adjusted",
     )
 
-    fig = go.Figure()
-    fig.add_trace(
-        go.Scatter(
-            x=month_names,
-            y=baseline_values,
-            mode="lines+markers",
-            name="Challenge scenario",
-            line=dict(color=THEME["primary_orange"], width=3),
-            fill="tozeroy",
-            fillcolor="rgba(255,91,0,0.12)",
-            hovertemplate="%{x}<br>Buffer: $%{y:,.2f}<extra></extra>",
-        )
+    categories = list(dict.fromkeys(month_names + adjusted_months))
+    baseline_by_month = dict(zip(month_names, baseline_values))
+    adjusted_by_month = dict(zip(adjusted_months, adjusted_values))
+    options = base_options(zoom=True)
+    options.update(
+        {
+            "grid": {"left": 24, "right": 24, "top": 58, "bottom": 78, "containLabel": True},
+            "xAxis": {
+                "type": "category",
+                "boundaryGap": False,
+                "name": "Month in this what-if · final point marks runway",
+                "nameLocation": "middle",
+                "nameGap": 32,
+                "data": categories,
+                **axis_style(),
+            },
+            "yAxis": {
+                "type": "value",
+                "name": "Estimated buffer (CAD)",
+                "nameLocation": "middle",
+                "nameGap": 70,
+                "axisLabel": {"color": THEME["text_muted"], "formatter": "${value}"},
+                "axisLine": {"show": False},
+                "splitLine": {"lineStyle": {"color": "rgba(141,153,174,.16)"}},
+            },
+            "series": [
+                {
+                    "name": "Challenge scenario",
+                    "type": "line",
+                    "data": [baseline_by_month.get(month) for month in categories],
+                    "connectNulls": False,
+                    "smooth": 0.16,
+                    "showSymbol": True,
+                    "symbolSize": 7,
+                    "lineStyle": {"color": THEME["primary_orange"], "width": 3},
+                    "itemStyle": {"color": THEME["primary_orange"]},
+                    "areaStyle": {"color": "rgba(255,91,0,.10)"},
+                    "emphasis": {"focus": "series", "lineStyle": {"width": 4}},
+                    "markLine": {
+                        "symbol": "none",
+                        "silent": True,
+                        "lineStyle": {"color": THEME["alert_red"], "type": "dashed"},
+                        "label": {"formatter": "Buffer reaches $0", "color": THEME["alert_red"]},
+                        "data": [{"yAxis": 0}],
+                    },
+                },
+                {
+                    "name": "With your adjustment",
+                    "type": "line",
+                    "data": [adjusted_by_month.get(month) for month in categories],
+                    "connectNulls": False,
+                    "smooth": 0.16,
+                    "showSymbol": True,
+                    "symbolSize": 7,
+                    "lineStyle": {"color": THEME["accent_blue"], "width": 3, "type": "dashed"},
+                    "itemStyle": {"color": THEME["accent_blue"]},
+                    "emphasis": {"focus": "series", "lineStyle": {"width": 4}},
+                },
+            ],
+        }
     )
-    fig.add_trace(
-        go.Scatter(
-            x=adjusted_months,
-            y=adjusted_values,
-            mode="lines+markers",
-            name="With your adjustment",
-            line=dict(color=THEME["accent_blue"], width=3, dash="dash"),
-            hovertemplate="%{x}<br>Buffer with adjustment: $%{y:,.2f}<extra></extra>",
-        )
-    )
-    fig.add_hline(
-        y=0,
-        line_color="#E63946",
-        line_dash="dot",
-        annotation_text="Buffer reaches $0",
-    )
-    fig.update_layout(
-        template="plotly_dark",
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        xaxis_title="Month in this what-if (final point marks estimated runway)",
-        yaxis_title="Estimated buffer (CAD)",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-        margin=dict(l=20, r=20, t=30, b=20),
-        height=390,
-    )
-    return fig, challenge_raw_runway, challenge_depletion_step
+    return options, challenge_raw_runway, challenge_depletion_step
 
 
 def _render_timeline_frame(
@@ -119,7 +141,7 @@ def _render_timeline_frame(
 ):
     duration = projection_baseline.duration_months
     frame = min(duration, max(0, int(st.session_state.get(frame_key, 0))))
-    fig, challenge_runway, depletion_step = _timeline_figure(
+    options, challenge_runway, depletion_step = _timeline_figure(
         baseline,
         shock,
         projection_baseline,
@@ -132,11 +154,7 @@ def _render_timeline_frame(
         else "No modeled depletion under the challenge formula"
     )
     st.progress(frame / duration, text=f"Month {frame} of {duration} · {runway_text}")
-    st.plotly_chart(
-        fig,
-        use_container_width=True,
-        key=f"live-buffer-plot-{playback_key}",
-    )
+    render_chart(options, key=f"live-buffer-plot-{playback_key}", height=420)
 
     if frame == 0:
         st.markdown(
@@ -182,10 +200,10 @@ def _render_timeline_frame(
 
 
 def render_shock_simulator(repo: LocalDataRepository):
-    st.markdown("## 🎲 What if life throws a curveball?")
+    st.markdown("## 🎲 Test a what-if for one account")
     st.caption(
-        "Pick an account, choose a scenario, and see what changes. These are transparent "
-        "what-ifs—not predictions, financial advice, or a test of anyone's choices."
+        "Choose an account and change the assumptions to see how its savings buffer could respond. "
+        "These are calculations using supplied records, not predictions or financial advice."
     )
 
     valid_accounts = repo.get_all_accounts()
@@ -195,23 +213,25 @@ def render_shock_simulator(repo: LocalDataRepository):
     if st.session_state.get("shock_account_id") != active_id:
         st.session_state["shock_account_id"] = active_id
     account_id = st.selectbox(
-        "Account for this active scenario",
+        "Choose an account",
         options=valid_accounts,
         format_func=lambda value: f"Account #{value}",
         key="shock_account_id",
     )
     st.session_state["active_account_id"] = account_id
-    profile = get_customer_profile(account_id, repo)
+    monthly_df = repo.get_monthly_summary(account_id)
+    acc_meta = repo.get_account_meta(account_id)
+    if acc_meta is None or monthly_df.empty:
+        st.error("Please select a valid Account ID in the Customer Explorer first.")
+        return
+    baseline = compute_official_baseline(account_id, monthly_df, acc_meta)
+    profile = get_customer_profile(account_id, repo, account_meta=acc_meta, baseline=baseline)
     if not profile:
         st.error("Please select a valid Account ID in the Customer Explorer first.")
         return
 
-    monthly_df = repo.get_monthly_summary(account_id)
-    acc_meta = repo.get_account_meta(account_id)
-    baseline = compute_official_baseline(account_id, monthly_df, acc_meta)
-
     # 1. Preset Shock Selection
-    st.markdown("### Choose a scenario")
+    st.markdown("### Choose what to change")
     scenario_labels = [
         "🧘 Keep things steady",
         "📉 Income takes a dip",
@@ -245,37 +265,40 @@ def render_shock_simulator(repo: LocalDataRepository):
         sc_col1, sc_col2, sc_col3, sc_col4 = st.columns(4)
         with sc_col1:
             income_pct = st.slider(
-                "Money-in level (%)",
+                "Money-in level (usual = 100%)",
                 min_value=0,
                 max_value=150,
                 value=int(chosen_preset.income_multiplier * 100),
                 step=5,
                 key=f"income_pct_{chosen_preset.scenario_id}",
-                help="Scenario multiplier on recorded money-in; it is not verified payroll or an EI estimate."
+                help="Sets money coming into the account as a share of its usual level. For example, 55% means 45% less. This is not verified pay or a benefit estimate."
             ) / 100.0
         with sc_col2:
+            bill_key = f"bills_pct_{chosen_preset.scenario_id}"
+            if st.session_state.get(bill_key, 0) < 0:
+                st.session_state[bill_key] = 0
             bills_pct = st.slider(
-                "Household bills change (%)",
-                min_value=-30,
+                "Household-bill change (%)",
+                min_value=0,
                 max_value=100,
                 value=int(chosen_preset.household_bills_pct * 100),
                 step=5,
-                key=f"bills_pct_{chosen_preset.scenario_id}",
-                help="Change applied to observed household bills (for example, +15%)."
+                key=bill_key,
+                help="Changes the recorded household bills. For example, +15% means bills are 15% higher; 0% leaves them unchanged."
             ) / 100.0
         with sc_col3:
             one_off_spend_mult = st.slider(
-                "One-off cost (× typical monthly spending)",
+                "One-off cost (typical spending months)",
                 min_value=0.0,
                 max_value=3.0,
                 value=float(chosen_preset.one_off_spend_multiplier),
                 step=0.25,
                 key=f"one_off_spend_{chosen_preset.scenario_id}",
-                help="A scenario input, not a forecast of repair costs."
+                help="A one-time cost measured in usual monthly spending. For example, 1 means one typical month of spending."
             )
         with sc_col4:
             custom_fixed_cost = st.number_input(
-                "Extra one-off cost ($ CAD)",
+                "Additional one-time cost ($ CAD)",
                 min_value=0,
                 max_value=50000,
                 value=int(chosen_preset.one_off_fixed_amount),
@@ -283,7 +306,7 @@ def render_shock_simulator(repo: LocalDataRepository):
                 key=f"one_off_fixed_{chosen_preset.scenario_id}",
             )
         duration_months = st.slider(
-            "Months to show when there is no monthly shortfall",
+            "How many months to show if spending does not exceed money-in",
             min_value=1,
             max_value=12,
             value=chosen_preset.duration_months,
@@ -306,9 +329,9 @@ def render_shock_simulator(repo: LocalDataRepository):
     # Optional adjustment is customer-selected and does not change Judge Match Runway.
     judge_match_result = simulate_shock(baseline, active_scenario)
     adjustment_max = max(1, int(judge_match_result.spending_after_shock))
-    st.markdown("### Want to test a possible adjustment?")
+    st.markdown("### Try a monthly change")
     monthly_adjustment = st.slider(
-        "Monthly adjustment to try ($ CAD)",
+        "Monthly spending change to try ($ CAD)",
         min_value=0,
         max_value=adjustment_max,
         value=0,
@@ -343,7 +366,7 @@ def render_shock_simulator(repo: LocalDataRepository):
     st.markdown("---")
 
     # 3. Before vs After Shock Results
-    st.subheader("📊 Your scenario, in numbers")
+    st.subheader("📊 What this what-if shows")
 
     res1, res2, res3, res4 = st.columns(4)
     with res1:
@@ -362,30 +385,30 @@ def render_shock_simulator(repo: LocalDataRepository):
         )
     with res3:
         st.metric(
-            "Monthly gap",
+            "Monthly shortfall / surplus",
             f"${shock_res.monthly_gap:,.2f}",
-            delta="Surplus" if shock_res.monthly_gap <= 0 else "Burn",
+            delta="Surplus" if shock_res.monthly_gap <= 0 else "Shortfall",
             delta_color="inverse" if shock_res.monthly_gap > 0 else "normal"
         )
     with res4:
         st.metric(
-            "Buffer after one-off cost",
+            "Balance after one-time cost",
             f"${shock_res.buffer_left:,.2f}",
             delta=f"-${shock_res.one_off_costs:,.2f}" if shock_res.one_off_costs > 0 else "0",
             delta_color="inverse" if shock_res.one_off_costs > 0 else "off"
         )
 
-    # 4. Judge Match vs selected adjustment
+    # 4. Estimated coverage with and without the selected adjustment
     st.markdown("### How long could the buffer last?")
     rw_col1, rw_col2 = st.columns(2)
 
     with rw_col1:
         st.markdown(f"""
         <div style="background-color: {THEME['card_bg']}; padding: 20px; border-radius: 8px; border-left: 6px solid {THEME['primary_orange']};">
-            <span style="font-size: 12px; color: {THEME['text_muted']}; text-transform: uppercase;">Challenge runway</span>
+            <span style="font-size: 12px; color: {THEME['text_muted']}; text-transform: uppercase;">Estimated buffer coverage</span>
             <h2 style="color: {THEME['text_main']}; margin: 5px 0;">{shock_res.runway_label}</h2>
             <p style="font-size: 13px; color: {THEME['text_muted']}; margin-bottom: 0;">
-                Official challenge calculation. Holds the simulated monthly gap constant.
+                Shows how long the remaining balance could cover the modeled monthly shortfall.
             </p>
         </div>
         """, unsafe_allow_html=True)
@@ -393,11 +416,11 @@ def render_shock_simulator(repo: LocalDataRepository):
     with rw_col2:
         st.markdown(f"""
         <div style="background-color: {THEME['card_bg']}; padding: 20px; border-radius: 8px; border-left: 6px solid {THEME['accent_blue']};">
-            <span style="font-size: 12px; color: {THEME['text_muted']}; text-transform: uppercase;">With your optional adjustment</span>
+            <span style="font-size: 12px; color: {THEME['text_muted']}; text-transform: uppercase;">With your monthly change</span>
             <h2 style="color: {THEME['accent_blue']}; margin: 5px 0;">{shock_res.adaptive_runway_label}</h2>
             <p style="font-size: 13px; color: {THEME['text_muted']}; margin-bottom: 0;">
                 Tries your ${monthly_adjustment:,.2f}/month input. No category is presumed
-                adjustable. Difference from challenge runway: {shock_res.months_gained_by_adaptation:.1f} months.
+                adjustable. Difference: {shock_res.months_gained_by_adaptation:.1f} months.
             </p>
         </div>
         """, unsafe_allow_html=True)
@@ -430,8 +453,8 @@ def render_shock_simulator(repo: LocalDataRepository):
             language="text",
         )
         st.caption(
-            "Sources: this account's monthly_summary rows. The money-in scenario is not verified "
-            "employment income. A constant-gap runway is a calculation convention, not a forecast."
+            "Source: this account's monthly records. Money coming in is not verified pay. "
+            "The estimate assumes the monthly shortfall stays the same; it is not a forecast."
         )
 
     st.markdown("---")
@@ -520,6 +543,6 @@ def render_shock_simulator(repo: LocalDataRepository):
         )
     else:
         st.warning(
-            f"⚠️ **Scenario-window result:** Under Judge Match spending, the buffer reaches "
+            f"⚠️ **Scenario result:** With these assumptions, the balance reaches "
             f"zero in Month +{projection_baseline.months_until_depleted}."
         )
