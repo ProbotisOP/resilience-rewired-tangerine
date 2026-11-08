@@ -42,6 +42,9 @@ def project_shock_timeline(
     - Month 1 begins with: buffer_left = B - one_off_costs
     - Each month: buffer_{t+1} = buffer_t + (income_after - spending_after)
     """
+    if duration_months < 0:
+        raise ValueError("duration_months cannot be negative")
+
     current_buf = shock_result.buffer_left
     income = shock_result.income_after_shock
     spending = shock_result.adaptive_spending if adaptive_mode else shock_result.spending_after_shock

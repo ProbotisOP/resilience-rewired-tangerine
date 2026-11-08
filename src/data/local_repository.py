@@ -27,6 +27,7 @@ class LocalDataRepository:
         
         # Precomputed caches
         self._account_baselines: Optional[pd.DataFrame] = None
+        self._analysis_cache: Dict[str, Any] = {}
         self._is_loaded = False
 
     @classmethod
@@ -40,6 +41,23 @@ class LocalDataRepository:
         """Loads and indexes all nine relational tables."""
         if self._is_loaded:
             return
+
+        required_files = (
+            "accounts.csv",
+            "clients.csv",
+            "dispositions.csv",
+            "cards.csv",
+            "districts.csv",
+            "loans.csv",
+            "standing_orders.csv",
+            "monthly_summary.csv",
+            "transactions.csv",
+        )
+        missing = [name for name in required_files if not (self.data_dir / name).is_file()]
+        if missing:
+            raise FileNotFoundError(
+                f"Required dataset file(s) missing from {self.data_dir}: {', '.join(missing)}"
+            )
 
         print(f"Loading datasets from {self.data_dir}...")
         
@@ -150,12 +168,12 @@ class LocalDataRepository:
             acc_dict['has_card'] = False
             acc_dict['card_type'] = 'No Card'
 
-        # Authorized Users (Joint Account)
+        # Authorized users are account-access roles, not relationship labels.
         users = self.dispositions[
             (self.dispositions['account_id'] == account_id) & 
             (self.dispositions['type'] == 'authorized user')
         ]
-        acc_dict['is_joint'] = not users.empty
+        acc_dict['has_authorized_user'] = not users.empty
         acc_dict['authorized_user_count'] = len(users)
 
         # Branch District Details
@@ -189,7 +207,9 @@ class LocalDataRepository:
         so_rows = self.standing_orders[self.standing_orders['account_id'] == account_id]
         acc_dict['standing_orders_count'] = len(so_rows)
         acc_dict['standing_orders_total'] = so_rows['amount'].sum() if not so_rows.empty else 0.0
-        acc_dict['has_leasing_so'] = (so_rows['purpose'] == 'leasing').any() if not so_rows.empty else False
+        acc_dict['has_leasing_labelled_order'] = (
+            (so_rows['purpose'] == 'leasing').any() if not so_rows.empty else False
+        )
 
         return acc_dict
 
@@ -198,3 +218,13 @@ class LocalDataRepository:
         if not self._is_loaded:
             self.load_all()
         return sorted(self.accounts['account_id'].unique().tolist())
+
+    def get_portfolio_account_metrics(self) -> pd.DataFrame:
+        """Return cached shared account-level metrics for the loaded monthly table."""
+        if not self._is_loaded:
+            self.load_all()
+        if self._account_baselines is None:
+            from src.services.baseline_metrics import compute_portfolio_account_metrics
+
+            self._account_baselines = compute_portfolio_account_metrics(self.monthly_summary)
+        return self._account_baselines.copy()

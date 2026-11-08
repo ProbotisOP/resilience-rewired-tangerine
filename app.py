@@ -24,6 +24,12 @@ st.markdown("""
         color: #F8F9FA;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     }
+
+    .block-container {
+        max-width: 1440px;
+        padding-top: 2rem;
+        padding-bottom: 3rem;
+    }
     
     /* Top Header & Accents */
     h1, h2, h3, h4 {
@@ -48,14 +54,31 @@ st.markdown("""
         font-size: 13px !important;
         font-weight: 500 !important;
     }
+
+    [data-testid="stMetric"] {
+        background: linear-gradient(145deg, #16203D, #121B36);
+        border: 1px solid #263557;
+        border-radius: 12px;
+        padding: 14px 16px;
+    }
+
+    [data-testid="stAlert"] {
+        border-radius: 10px;
+    }
+
+    [data-testid="stExpander"] {
+        border: 1px solid #263557;
+        border-radius: 10px;
+        background-color: rgba(18, 27, 54, 0.55);
+    }
     
     /* Custom Button Styling */
     div.stButton > button:first-child {
         background-color: #FF5B00;
         color: white;
         border: none;
-        border-radius: 6px;
-        padding: 8px 16px;
+        border-radius: 9px;
+        padding: 10px 16px;
         font-weight: 600;
         transition: all 0.2s ease-in-out;
     }
@@ -92,6 +115,32 @@ from src.ui.ai_advisor import render_ai_advisor
 from src.ui.methodology import render_methodology
 from config.settings import THEME
 
+PAGE_OPTIONS = [
+    "🏠 Portfolio snapshot",
+    "👤 Explore an account",
+    "🎲 Try a what-if",
+    "🧭 Build a resilience plan",
+    "🔎 What the data shows",
+    "💬 Ask the data",
+    "🧮 How we calculate it",
+]
+PAGE_SLUGS = {
+    PAGE_OPTIONS[0]: "portfolio",
+    PAGE_OPTIONS[1]: "account",
+    PAGE_OPTIONS[2]: "what-if",
+    PAGE_OPTIONS[3]: "plan",
+    PAGE_OPTIONS[4]: "evidence",
+    PAGE_OPTIONS[5]: "ask",
+    PAGE_OPTIONS[6]: "method",
+}
+PAGES_BY_SLUG = {slug: page for page, slug in PAGE_SLUGS.items()}
+
+
+def _sync_navigation_query_param():
+    selected_page = st.session_state["main_navigation"]
+    st.query_params["page"] = PAGE_SLUGS[selected_page]
+
+
 @st.cache_resource(show_spinner="Loading Tangerine financial intelligence repository...")
 def load_data_engine():
     repo = LocalDataRepository.get_instance()
@@ -99,10 +148,27 @@ def load_data_engine():
     return repo
 
 def main():
-    repo = load_data_engine()
+    try:
+        repo = load_data_engine()
+    except FileNotFoundError as error:
+        st.error(f"Required source data is missing. {error}")
+        st.stop()
+
+    valid_accounts = repo.get_all_accounts()
+    if not valid_accounts:
+        st.error("No valid account IDs are available in the loaded account directory.")
+        st.stop()
+    if st.session_state.get("active_account_id") not in valid_accounts:
+        st.session_state["active_account_id"] = valid_accounts[0]
 
     # Sidebar Branding & Navigation
     with st.sidebar:
+        requested_page = PAGES_BY_SLUG.get(st.query_params.get("page", ""))
+        if requested_page is not None:
+            st.session_state["main_navigation"] = requested_page
+        elif "main_navigation" not in st.session_state:
+            st.session_state["main_navigation"] = PAGE_OPTIONS[0]
+
         st.markdown(f"""
         <div style="text-align: center; padding: 10px 0 15px 0;">
             <h2 style="color: {THEME['primary_orange']} !important; margin: 0; font-size: 28px;">🛡️ Tangerine</h2>
@@ -114,40 +180,33 @@ def main():
         st.markdown("---")
 
         page = st.radio(
-            "Platform Navigation",
-            options=[
-                "🏛️ Portfolio Overview & Macro Insights",
-                "👤 Customer Intelligence Explorer",
-                "⚡ Financial Shock Simulator (Live Twist)",
-                "🎯 Recovery & Emergency Planner",
-                "🔬 Forensic Early Warning & Discoveries",
-                "💬 AI Strategic Executive Advisor",
-                "📖 Methodology & Challenge Formulas"
-            ],
-            index=0
+            "Where would you like to go?",
+            options=PAGE_OPTIONS,
+            key="main_navigation",
+            on_change=_sync_navigation_query_param,
         )
 
         st.markdown("---")
-        st.markdown("### 🔍 Active Customer Context")
-        active_id = st.session_state.get("active_account_id", 20111)
+        st.markdown("### Account in focus")
+        active_id = st.session_state["active_account_id"]
         st.info(f"**Selected Account:** #{active_id}")
         
-        st.caption("Change account in the Customer Explorer tab at any time during judging demonstration.")
+        st.caption("You can switch accounts from “Explore an account” or “Try a what-if.”")
 
     # Page Routing
-    if page == "🏛️ Portfolio Overview & Macro Insights":
+    if page == "🏠 Portfolio snapshot":
         render_overview(repo)
-    elif page == "👤 Customer Intelligence Explorer":
+    elif page == "👤 Explore an account":
         render_customer_explorer(repo)
-    elif page == "⚡ Financial Shock Simulator (Live Twist)":
+    elif page == "🎲 Try a what-if":
         render_shock_simulator(repo)
-    elif page == "🎯 Recovery & Emergency Planner":
+    elif page == "🧭 Build a resilience plan":
         render_recovery_planner(repo)
-    elif page == "🔬 Forensic Early Warning & Discoveries":
+    elif page == "🔎 What the data shows":
         render_discoveries(repo)
-    elif page == "💬 AI Strategic Executive Advisor":
+    elif page == "💬 Ask the data":
         render_ai_advisor(repo)
-    elif page == "📖 Methodology & Challenge Formulas":
+    elif page == "🧮 How we calculate it":
         render_methodology()
 
 if __name__ == "__main__":

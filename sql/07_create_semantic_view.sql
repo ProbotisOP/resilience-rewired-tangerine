@@ -1,14 +1,14 @@
--- 07_create_semantic_view.sql
+-- Optional ordinary SQL view example.
+-- This is NOT a Snowflake Cortex Semantic View and is not queried by the app.
 USE DATABASE RESILIENCE_REWIRED;
 USE SCHEMA SEMANTIC;
 
--- Semantic View for Snowflake Cortex Analyst / Cortex Agents
-CREATE OR REPLACE VIEW FINANCIAL_RESILIENCE_SEMANTIC_VIEW AS
-SELECT 
+CREATE OR REPLACE VIEW FINANCIAL_RESILIENCE_METRICS AS
+SELECT
     account_id AS "Account ID",
     branch_district_id AS "Branch District",
     statement_frequency AS "Statement Frequency",
-    is_joint AS "Is Joint Account",
+    has_authorized_user AS "Has Authorized User",
     card_type AS "Card Type",
     typical_money_in_i AS "Typical Monthly Money-In",
     typical_fixed_costs_f AS "Typical Fixed Costs",
@@ -18,9 +18,16 @@ SELECT
     active_loan_payment_p AS "Active Loan Payment",
     baseline_gap AS "Monthly Cash-Flow Gap",
     baseline_runway_months AS "Baseline Runway (Months)",
-    
-    -- Pre-calculated Shock Runways
-    ROUND(LEAST(GREATEST(0.0, buffer_b) / GREATEST(0.01, (typical_spending_s - 0.55 * typical_money_in_i)), 120.0), 1) AS "Runway Under EI 55%",
-    ROUND(LEAST(GREATEST(0.0, buffer_b) / GREATEST(0.01, (typical_spending_s + 0.15 * typical_household_bills_h - 0.55 * typical_money_in_i)), 120.0), 1) AS "Runway Under Combined Shock"
+    CASE
+        WHEN buffer_b <= 0 THEN 0.0
+        WHEN typical_spending_s - 0.55 * typical_money_in_i <= 0 THEN 120.0
+        ELSE ROUND(
+            LEAST(
+                buffer_b / (typical_spending_s - 0.55 * typical_money_in_i),
+                120.0
+            ),
+            1
+        )
+    END AS "Simulated Runway Under 55% Money-In"
 FROM MART.ACCOUNT_BASELINE
-COMMENT = 'Governed semantic view providing certified customer resilience metrics for Cortex Agent business Q&A';
+COMMENT = 'Optional reporting view; scenario result is simulated and not a forecast';

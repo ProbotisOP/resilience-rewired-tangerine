@@ -8,7 +8,7 @@ from typing import Dict, Any, Optional
 import numpy as np
 
 from config.scenarios import ShockScenario
-from src.services.baseline_metrics import BaselineMetrics
+from src.services.baseline_metrics import BaselineMetrics, calculate_runway_details
 
 @dataclass
 class ShockResult:
@@ -51,30 +51,17 @@ def calculate_judge_runway(
     else: runway = min(buffer_left / gap, 120)
     Round runway to 1 decimal.
     """
-    buffer_left = buffer - one_off_costs
-    gap = spending_after_shock - income_after_shock
-
-    if buffer_left <= 0:
-        runway = 0.0
-        label = "0.0 (Buffer Exhausted)"
-    elif gap <= 0:
-        runway = 120.0
-        label = "no shortfall (120+)"
-    else:
-        runway = round(min(buffer_left / gap, 120.0), 1)
-        label = f"{runway:.1f} months"
-
-    return {
-        "buffer_left": round(buffer_left, 2),
-        "gap": round(gap, 2),
-        "runway": runway,
-        "runway_label": label
-    }
+    return calculate_runway_details(
+        buffer,
+        income_after_shock,
+        spending_after_shock,
+        one_off_costs,
+    )
 
 def simulate_shock(
     baseline: BaselineMetrics,
     scenario: ShockScenario,
-    discretionary_compression_pct: float = 0.30
+    monthly_spending_adjustment: float = 0.0
 ) -> ShockResult:
     """
     Simulates a financial shock on a customer's baseline numbers:
@@ -104,12 +91,11 @@ def simulate_shock(
 
     delta_runway = round(runway - baseline.baseline_runway, 1)
 
-    # 3. Adaptive Spend Simulation (Compressing Discretionary Spend)
-    # Fixed floor is F (bills + insurance + loan payments)
-    fixed_floor = min(baseline.F, spending_after)
-    discretionary_spend = max(0.0, spending_after - fixed_floor)
-    compressed_discretionary = discretionary_spend * (1.0 - discretionary_compression_pct)
-    adaptive_spending = round(fixed_floor + compressed_discretionary, 2)
+    if monthly_spending_adjustment < 0:
+        raise ValueError("monthly_spending_adjustment cannot be negative")
+
+    # Optional scenario only: this reduction is explicitly supplied by the user.
+    adaptive_spending = round(max(0.0, spending_after - monthly_spending_adjustment), 2)
     adaptive_gap = round(adaptive_spending - income_after, 2)
 
     adaptive_calc = calculate_judge_runway(

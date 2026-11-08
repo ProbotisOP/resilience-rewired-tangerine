@@ -149,6 +149,8 @@ One row per account per month, built from `transactions.csv`, from the account's
 | `standing_orders.csv` | 6,471 | `order_id`, `account_id`, `to_bank`, `to_account`, `amount`, `purpose` (household bills, insurance, leasing, loan payment; blank = other). Undated end-of-data snapshot |
 | `districts.csv` | 77 | `district_id`, `district_name`, `region`, `inhabitants`, `municipalities_under_500`, `municipalities_500_1999`, `municipalities_2000_9999`, `municipalities_over_10000`, `num_cities`, `urban_ratio_pct`, `average_salary` (monthly, CAD), `unemployment_rate_2022`, `unemployment_rate_2023`, `entrepreneurs_per_1000`, `crimes_2022`, `crimes_2023`. These are the bank's original regions. District 69 has no 2022 unemployment or crime values |
 
+**Interpretation notes:** An `authorized user` is an account-access role; it does not establish a spouse, partner, household member or co-borrower. Standing orders are an undated snapshot without a frequency field, so their amounts are not confirmed monthly commitments. The 55% EI example is a challenge scenario applied to recorded money-in, not verified employment income or confirmed EI eligibility. Use status C/D outcomes as potentially ongoing.
+
 ---
 
 ## Canadian sources for sizing shocks

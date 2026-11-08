@@ -33,7 +33,7 @@ OFFICIAL_PRESETS = [
     ShockScenario(
         scenario_id="JOB_LOSS_EI_55",
         name="Twist 1: Job Loss (EI @ 55%)",
-        description="Customer is laid off; Employment Insurance (EI) pays 55% of typical monthly income.",
+        description="Challenge simulation scales recorded typical money-in to 55%; it does not verify payroll or EI eligibility.",
         income_multiplier=0.55,
         household_bills_pct=0.0,
         one_off_spend_multiplier=0.0,
@@ -55,7 +55,7 @@ OFFICIAL_PRESETS = [
     ShockScenario(
         scenario_id="COMBINED_SHOCK",
         name="Twist 3: Layoff (EI 55%) + Bills (+15%)",
-        description="Dual economic squeeze: laid off with 55% EI while household bills rise by 15%.",
+        description="Challenge simulation scales recorded money-in to 55% and raises household bills by 15%; not a forecast.",
         income_multiplier=0.55,
         household_bills_pct=0.15,
         one_off_spend_multiplier=0.0,

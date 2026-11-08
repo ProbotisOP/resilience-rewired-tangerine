@@ -12,35 +12,41 @@ from src.services.baseline_metrics import compute_official_baseline
 from config.settings import THEME
 
 def render_customer_explorer(repo: LocalDataRepository):
-    st.markdown("## 👤 Customer Intelligence & Baseline Explorer")
-    st.caption("Inspect verified financial parameters, ownership context, and transaction trends for any retail account.")
+    st.markdown("## 👤 Explore an account")
+    st.caption(
+        "Choose any account to see its observed monthly history and how the app builds "
+        "the baseline. These figures describe the supplied records, not the person's full finances."
+    )
 
-    # 1. Account Search Bar & Quick Selector
+    # 1. Select from all supplied account IDs
+    valid_accounts = repo.get_all_accounts()
+    current_account = st.session_state.get("active_account_id", valid_accounts[0])
+    if current_account not in valid_accounts:
+        current_account = valid_accounts[0]
     col_input, col_preset = st.columns([1, 2])
     
     with col_input:
-        selected_id = st.number_input(
-            "Enter Account ID (1 to 75000):",
-            min_value=1,
-            max_value=100000,
-            value=st.session_state.get("active_account_id", 20111),
-            step=1
+        selected_id = st.selectbox(
+            "Choose an account",
+            options=valid_accounts,
+            index=valid_accounts.index(current_account),
+            format_func=lambda value: f"Account #{value}",
         )
         st.session_state["active_account_id"] = selected_id
 
     with col_preset:
-        st.write("Or select a representative archetype:")
+        st.write("Or jump to a sample:")
         b1, b2, b3, b4 = st.columns(4)
-        if b1.button("Account 20111\n(Running Loan D)", use_container_width=True):
+        if b1.button("Account 20111", use_container_width=True):
             st.session_state["active_account_id"] = 20111
             st.rerun()
-        if b2.button("Account 55447\n(Healthy Loan C)", use_container_width=True):
+        if b2.button("Account 55447", use_container_width=True):
             st.session_state["active_account_id"] = 55447
             st.rerun()
-        if b3.button("Account 62236\n(Protected Joint)", use_container_width=True):
+        if b3.button("Account 62236", use_container_width=True):
             st.session_state["active_account_id"] = 62236
             st.rerun()
-        if b4.button("Account 74958\n(Full 72 Mo History)", use_container_width=True):
+        if b4.button("Account 74958", use_container_width=True):
             st.session_state["active_account_id"] = 74958
             st.rerun()
 
@@ -52,52 +58,85 @@ def render_customer_explorer(repo: LocalDataRepository):
         return
 
     monthly_df = repo.get_monthly_summary(account_id)
+    monthly_df = monthly_df.sort_values("month").copy()
     acc_meta = repo.get_account_meta(account_id)
     baseline = compute_official_baseline(account_id, monthly_df, acc_meta)
+    if baseline.history_months < 6:
+        st.warning(
+            f"Only {baseline.history_months} monthly records are available; the buffer uses "
+            "the available rows rather than a full six-month window."
+        )
 
-    # 2. Header & Archetype Banner
+    # 2. Header & Observed Indicators
     banner_col1, banner_col2 = st.columns([2.5, 1.5])
     with banner_col1:
-        st.markdown(f"### Account #{profile.account_id} · Client #{profile.owner_client_id}")
+        st.markdown(f"### Account #{profile.account_id}")
         st.markdown(
-            f"**Demographics:** {profile.gender}, Age {profile.age:.0f} ({profile.age_bracket}) | "
-            f"**Branch:** {profile.branch_district_name} ({profile.branch_region}) | "
-            f"**Opened:** {profile.account_opened} ({baseline.history_months} months active)"
+            f"**Account opened:** {profile.account_opened} · "
+            f"**Monthly records available:** {baseline.history_months} · "
+            f"**Branch area:** {profile.branch_district_name} ({profile.branch_region})"
         )
 
     with banner_col2:
-        st.markdown(f"""
-        <div style="background-color: {THEME['card_bg']}; padding: 12px; border-radius: 6px; border: 1px solid {profile.archetype_badge_color}; text-align: center;">
-            <span style="font-size: 11px; color: {THEME['text_muted']}; text-transform: uppercase;">Behavioral Archetype</span>
-            <p style="font-size: 16px; font-weight: bold; color: {profile.archetype_badge_color}; margin: 2px 0;">{profile.primary_archetype}</p>
-        </div>
-        """, unsafe_allow_html=True)
+        st.markdown("**Details visible in the data**")
+        st.write(", ".join(profile.observed_indicators) if profile.observed_indicators else "No additional details flagged.")
+        st.caption(profile.indicator_description)
 
     st.markdown("---")
 
     # 3. Official Judging Metrics Display
-    st.subheader("📐 Official Baseline Parameters (Tangerine Challenge Definitions)")
+    st.subheader("📐 Typical monthly picture")
     m1, m2, m3, m4, m5, m6, m7 = st.columns(7)
     with m1:
-        st.metric("Money In (I)", f"${baseline.I:,.2f}", help="Median of money_in")
+        st.metric("Money in", f"${baseline.I:,.2f}", help="Median of monthly money in.")
     with m2:
-        st.metric("Fixed Costs (F)", f"${baseline.F:,.2f}", help="Median of row-wise household_bills + insurance + loan_payments")
+        st.metric("Fixed costs", f"${baseline.F:,.2f}", help="Median of monthly household bills, insurance and loan payments added together.")
     with m3:
-        st.metric("Spending (S)", f"${baseline.S:,.2f}", help="Median of money_out")
+        st.metric("Spending", f"${baseline.S:,.2f}", help="Median of monthly money out.")
     with m4:
-        st.metric("Buffer (B)", f"${baseline.B:,.2f}", help="Mean of avg_daily_balance over the last 6 chronological rows")
+        st.metric("Buffer", f"${baseline.B:,.2f}", help="Average daily balance across up to the latest six monthly rows.")
     with m5:
-        st.metric("Bills (H)", f"${baseline.H:,.2f}", help="Median of household_bills")
+        st.metric("Household bills", f"${baseline.H:,.2f}", help="Median of monthly household bills.")
     with m6:
-        st.metric("Active Loan (P)", f"${baseline.P:,.2f}", help="monthly_payment if loan is still running at end of 2025 (status C or D), else 0")
+        st.metric("Recorded loan payment", f"${baseline.P:,.2f}", help="Supplied payment for a loan marked C or D; otherwise $0.")
     with m7:
-        st.metric("Baseline Runway", baseline.baseline_runway_label, delta=f"Gap: ${baseline.gap:,.2f}", delta_color="inverse")
+        st.metric("Runway", baseline.baseline_runway_label, delta=f"Monthly gap: ${baseline.gap:,.2f}", delta_color="inverse")
 
-    # 4. Contextual Diagnostics & Buffer Provenance
-    with st.expander("🔍 Buffer Provenance (Exact 6 Rows Used for B)"):
+    with st.expander("🧾 Show how this account's figures were calculated", expanded=True):
         st.markdown(
-            f"The Tangerine challenge defines **Buffer (B)** as the arithmetic mean of `avg_daily_balance` "
-            f"over the account's last 6 chronological monthly records. Average = **${baseline.B:,.2f} CAD**."
+            f"Each monthly statistic uses **{baseline.history_months} available monthly records** "
+            "for this account, sorted by month. The buffer uses up to the latest six records."
+        )
+        st.code(
+            "\n".join(
+                [
+                    f"Money in = median(monthly money_in) = ${baseline.I:,.2f}",
+                    f"Spending = median(monthly money_out) = ${baseline.S:,.2f}",
+                    f"Fixed costs = median(household_bills + insurance + loan_payments by month) = ${baseline.F:,.2f}",
+                    f"Household bills = median(monthly household_bills) = ${baseline.H:,.2f}",
+                    f"Buffer = mean(avg_daily_balance in latest {len(baseline.last_6_months_summary)} rows) = ${baseline.B:,.2f}",
+                    f"Monthly gap = spending - money in = ${baseline.S:,.2f} - ${baseline.I:,.2f} = ${baseline.gap:,.2f}",
+                    (
+                        f"Runway = {baseline.B:,.2f} ÷ {baseline.gap:,.2f}, capped at 120 and rounded to one decimal = {baseline.baseline_runway_label}"
+                        if baseline.B > 0 and baseline.gap > 0
+                        else (
+                            "Runway = 0.0 months because the buffer is zero or below."
+                            if baseline.B <= 0
+                            else "Runway = 120+ months because money in covers spending and the buffer is positive."
+                        )
+                    ),
+                    (
+                        f"Recorded loan payment = ${baseline.P:,.2f} (status {profile.loan_status})"
+                        if baseline.has_running_loan
+                        else "Recorded loan payment = $0.00 (no C/D loan payment is included)"
+                    ),
+                ]
+            ),
+            language="text",
+        )
+        st.caption(
+            "Source: account's monthly_summary rows and supplied loan record. The summary "
+            "does not establish which expenses are essential or discretionary."
         )
         display_last6 = baseline.last_6_months_summary[[
             "month", "money_in", "money_out", "avg_daily_balance", "month_end_balance", "days_below_zero"
@@ -115,37 +154,65 @@ def render_customer_explorer(repo: LocalDataRepository):
         )
 
     # 5. Longitudinal Trend Visualizations
-    st.subheader("📈 Longitudinal Cash Flow & Balance Trajectory")
-    
-    t_tab1, t_tab2 = st.tabs(["💵 Inflow vs Outflow Cash Velocity", "🏦 End-of-Day Balance & Overdraft Days"])
+    st.subheader("📈 Explore the monthly history")
+    month_options = monthly_df["month"].astype(str).tolist()
+    initial_start = month_options[max(0, len(month_options) - 24)]
+    month_window = st.select_slider(
+        "Show months from",
+        options=month_options,
+        value=(initial_start, month_options[-1]),
+        key=f"history_window_{account_id}",
+    )
+    visible_monthly_df = monthly_df[
+        monthly_df["month"].astype(str).between(month_window[0], month_window[1])
+    ].copy()
+    selected_month_net = (
+        visible_monthly_df["money_in"] - visible_monthly_df["money_out"]
+    )
+    window_col1, window_col2 = st.columns(2)
+    window_col1.metric(
+        "Months in view",
+        f"{len(visible_monthly_df)}",
+        f"{month_window[0]} to {month_window[1]}",
+    )
+    window_col2.metric(
+        "Median net cash flow in view",
+        f"${selected_month_net.median():,.2f}/mo",
+    )
+    st.caption(
+        "Move either end of the month range to update the graph. The baseline metrics above "
+        "continue to use the account's full available history."
+    )
+
+    t_tab1, t_tab2 = st.tabs(["💵 Money in vs spending", "🏦 Balance and below-zero days"])
 
     with t_tab1:
         fig_cf = go.Figure()
         fig_cf.add_trace(go.Scatter(
-            x=monthly_df["month"],
-            y=monthly_df["money_in"],
+            x=visible_monthly_df["month"],
+            y=visible_monthly_df["money_in"],
             mode="lines+markers",
-            name="Money In (Monthly)",
+            name="Money in",
             line=dict(color=THEME["success_green"], width=2.5)
         ))
         fig_cf.add_trace(go.Scatter(
-            x=monthly_df["month"],
-            y=monthly_df["money_out"],
+            x=visible_monthly_df["month"],
+            y=visible_monthly_df["money_out"],
             mode="lines+markers",
-            name="Money Out (Monthly)",
+            name="Spending",
             line=dict(color=THEME["alert_red"], width=2.5)
         ))
         fig_cf.add_hline(
             y=baseline.I,
             line_dash="dash",
             line_color=THEME["success_green"],
-            annotation_text=f"Typical In (I): ${baseline.I:,.0f}"
+            annotation_text=f"Typical money in: ${baseline.I:,.0f}"
         )
         fig_cf.add_hline(
             y=baseline.S,
             line_dash="dash",
             line_color=THEME["alert_red"],
-            annotation_text=f"Typical Out (S): ${baseline.S:,.0f}"
+            annotation_text=f"Typical spending: ${baseline.S:,.0f}"
         )
         fig_cf.update_layout(
             template="plotly_dark",
@@ -161,16 +228,16 @@ def render_customer_explorer(repo: LocalDataRepository):
     with t_tab2:
         fig_bal = go.Figure()
         fig_bal.add_trace(go.Scatter(
-            x=monthly_df["month"],
-            y=monthly_df["avg_daily_balance"],
+            x=visible_monthly_df["month"],
+            y=visible_monthly_df["avg_daily_balance"],
             mode="lines",
-            name="Avg Daily Balance",
+            name="Average daily balance",
             line=dict(color=THEME["accent_blue"], width=2)
         ))
         fig_bal.add_trace(go.Bar(
-            x=monthly_df["month"],
-            y=monthly_df["days_below_zero"],
-            name="Days Below Zero",
+            x=visible_monthly_df["month"],
+            y=visible_monthly_df["days_below_zero"],
+            name="Days below zero",
             marker_color=THEME["alert_red"],
             yaxis="y2"
         ))
