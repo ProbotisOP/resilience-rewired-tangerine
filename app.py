@@ -3,10 +3,10 @@ Resilience Rewired: Financial Resilience Intelligence Platform
 Sheridan Datathon 2026 — Tangerine Track
 Team: CTRL + ALT + WIN (Satnam Singh & Antigravity)
 """
-
+ 
 import streamlit as st
 from pathlib import Path
-
+ 
 # Streamlit Page Setup
 st.set_page_config(
     page_title="Resilience Rewired · Tangerine",
@@ -14,7 +14,7 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
-
+ 
 # Custom High-Contrast Fintech Styling (Tangerine Navy & Orange)
 st.markdown("""
 <style>
@@ -24,7 +24,6 @@ st.markdown("""
         color: #F8F9FA;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     }
-
     .block-container {
         max-width: 1440px;
         padding-top: 2rem;
@@ -54,18 +53,15 @@ st.markdown("""
         font-size: 13px !important;
         font-weight: 500 !important;
     }
-
     [data-testid="stMetric"] {
         background: linear-gradient(145deg, #16203D, #121B36);
         border: 1px solid #263557;
         border-radius: 12px;
         padding: 14px 16px;
     }
-
     [data-testid="stAlert"] {
         border-radius: 10px;
     }
-
     [data-testid="stExpander"] {
         border: 1px solid #263557;
         border-radius: 10px;
@@ -104,7 +100,7 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
-
+ 
 from src.data.local_repository import LocalDataRepository
 from src.ui.overview import render_overview
 from src.ui.customer_explorer import render_customer_explorer
@@ -113,8 +109,9 @@ from src.ui.recovery_planner import render_recovery_planner
 from src.ui.discoveries import render_discoveries
 from src.ui.ai_advisor import render_ai_advisor
 from src.ui.methodology import render_methodology
+from overdraft_risk.ui import render_overdraft_risk
 from config.settings import THEME
-
+ 
 PAGE_OPTIONS = [
     "🏠 Portfolio snapshot",
     "👤 Explore an account",
@@ -123,6 +120,7 @@ PAGE_OPTIONS = [
     "🔎 What the data shows",
     "💬 Ask the data",
     "🧮 How we calculate it",
+    "⚠️ Overdraft risk",
 ]
 PAGE_SLUGS = {
     PAGE_OPTIONS[0]: "portfolio",
@@ -132,35 +130,36 @@ PAGE_SLUGS = {
     PAGE_OPTIONS[4]: "evidence",
     PAGE_OPTIONS[5]: "ask",
     PAGE_OPTIONS[6]: "method",
+    PAGE_OPTIONS[7]: "overdraft-risk",
 }
 PAGES_BY_SLUG = {slug: page for page, slug in PAGE_SLUGS.items()}
-
-
+ 
+ 
 def _sync_navigation_query_param():
     selected_page = st.session_state["main_navigation"]
     st.query_params["page"] = PAGE_SLUGS[selected_page]
-
-
+ 
+ 
 @st.cache_resource(show_spinner="Loading Tangerine financial intelligence repository...")
 def load_data_engine():
     repo = LocalDataRepository.get_instance()
     repo.load_all()
     return repo
-
+ 
 def main():
     try:
         repo = load_data_engine()
     except FileNotFoundError as error:
         st.error(f"Required source data is missing. {error}")
         st.stop()
-
+ 
     valid_accounts = repo.get_all_accounts()
     if not valid_accounts:
         st.error("No valid account IDs are available in the loaded account directory.")
         st.stop()
     if st.session_state.get("active_account_id") not in valid_accounts:
         st.session_state["active_account_id"] = valid_accounts[0]
-
+ 
     # Sidebar Branding & Navigation
     with st.sidebar:
         requested_page = PAGES_BY_SLUG.get(st.query_params.get("page", ""))
@@ -168,7 +167,7 @@ def main():
             st.session_state["main_navigation"] = requested_page
         elif "main_navigation" not in st.session_state:
             st.session_state["main_navigation"] = PAGE_OPTIONS[0]
-
+ 
         st.markdown(f"""
         <div style="text-align: center; padding: 10px 0 15px 0;">
             <h2 style="color: {THEME['primary_orange']} !important; margin: 0; font-size: 28px;">🛡️ Tangerine</h2>
@@ -176,23 +175,23 @@ def main():
             <span style="font-size: 11px; color: {THEME['text_muted']};">Sheridan Datathon 2026 · Team CTRL+ALT+WIN</span>
         </div>
         """, unsafe_allow_html=True)
-
+ 
         st.markdown("---")
-
+ 
         page = st.radio(
             "Where would you like to go?",
             options=PAGE_OPTIONS,
             key="main_navigation",
             on_change=_sync_navigation_query_param,
         )
-
+ 
         st.markdown("---")
         st.markdown("### Account in focus")
         active_id = st.session_state["active_account_id"]
         st.info(f"**Selected Account:** #{active_id}")
         
         st.caption("You can switch accounts from “Explore an account” or “Try a what-if.”")
-
+ 
     # Page Routing
     if page == "🏠 Portfolio snapshot":
         render_overview(repo)
@@ -208,6 +207,8 @@ def main():
         render_ai_advisor(repo)
     elif page == "🧮 How we calculate it":
         render_methodology()
-
+    elif page == "⚠️ Overdraft risk":
+        render_overdraft_risk(repo)
+ 
 if __name__ == "__main__":
     main()
