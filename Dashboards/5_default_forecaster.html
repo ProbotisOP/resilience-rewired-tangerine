@@ -1,0 +1,333 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Default Forecaster</title>
+<link rel="stylesheet" href="shared/story.css">
+<style>
+  #picker { gap: 12px 18px; }
+  #picker .btn { font-size: 13px; padding: 4px 10px; }
+  #picker select { max-width: 280px; }
+  #picker input[type=range] { width: 240px; }
+  .readout { flex-basis: 100%; display: flex; gap: 22px; align-items: center; flex-wrap: wrap; padding: 10px 12px; margin-top: 2px;
+             border: 1px solid var(--ring); border-radius: 10px; background: var(--page); }
+  .readout .p { font-size: 30px; font-weight: 650; line-height: 1; font-variant-numeric: tabular-nums; }
+  .readout .pl { font-size: 12px; color: var(--muted); }
+  .pill { display: inline-block; padding: 3px 10px; border-radius: 999px; font-size: 13px; font-weight: 650; color: #fff; }
+  .pill.yes { background: var(--s2); } .pill.no { background: var(--s1); }
+  .readout .facts { font-size: 13px; color: var(--ink-2); line-height: 1.5; }
+  .readout .facts b { color: var(--ink); }
+  .ok { color: var(--s3); font-weight: 650; } .miss { color: var(--s2); font-weight: 650; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <a class="crumb" href="index.html">← All dashboards</a>
+    <button id="theme" class="theme-btn"></button>
+  </div>
+  <h1>Can a random forest see a default coming?</h1>
+  <p class="lede">We trained a random forest on each borrower's account history from before the loan started, then asked one question:
+    if only their cash share of income changed, would the forecast change?</p>
+
+  <div class="stage">
+    <aside class="panel narrative">
+      <div id="narrative-content" class="fade-swap"></div>
+      <div class="controls">
+        <div class="btns">
+          <button id="prev" class="btn">← Back</button>
+          <button id="play" class="btn">▶ Play</button>
+          <button id="next" class="btn primary">Next →</button>
+          <span id="counter" class="counter"></span>
+        </div>
+        <div id="dots" class="dots"></div>
+        <div class="hint">← → keys to step · Space to autoplay · hover the chart</div>
+      </div>
+    </aside>
+
+    <section class="panel chart-card">
+      <div class="chart-head">
+        <div id="chart-title" class="chart-title"></div>
+        <div id="legend" class="legend"></div>
+      </div>
+      <svg id="viz" class="viz" viewBox="0 0 900 520" role="img" aria-label="Random forest default forecaster charts"></svg>
+      <div class="widget" id="picker">
+        <label>Borrower <select id="who"></select></label>
+        <button class="btn" id="rndD">Random defaulter</button>
+        <button class="btn" id="rndR">Random non-defaulter</button>
+        <label>Cash share <input type="range" id="cs" min="0" step="1"><output id="csOut"></output></label>
+        <button class="btn" id="reset">Back to real value</button>
+        <div class="readout" id="readout"></div>
+      </div>
+      <details class="extra"><summary>Show the numbers as a table</summary><div id="table"></div></details>
+    </section>
+  </div>
+</div>
+
+<script src="lib/d3.min.js"></script>
+<script src="data/model.js"></script>
+<script src="shared/story.js"></script>
+<script>
+const MD = window.MODEL, S = Story, G = MD.grid, THR = MD.threshold, MT = MD.metrics, CF = MD.confusion;
+const F = MD.borrowerFields, idx = Object.fromEntries(F.map((f, i) => [f, i]));
+const B = MD.borrowers.map((r, i) => ({ i, id: r[idx.account_id], def: r[idx.defaulted], cash: r[idx.cash_share], oof: r[idx.oof_prob],
+  income: r[idx.income], amount: r[idx.amount], payment: r[idx.payment], joint: r[idx.joint], card: r[idx.card], curve: r[idx.curve] }));
+const nearest = v => G.reduce((bi, g, i) => Math.abs(g - v) < Math.abs(G[bi] - v) ? i : bi, 0);
+B.forEach(b => { b.gi = nearest(b.cash); });
+const at = v => MD.pdp[nearest(v)];
+const nLow = B.filter(b => b.cash < 0.5).length, nHigh = B.length - nLow;
+const hiBand = B.filter(b => b.cash >= 0.5).map(b => b.cash).sort(d3.ascending);
+const cashPct = v => v >= 0.95 || v < 0.1 ? S.pct(v, 1) : S.pct(v, 0);
+const cashImp = MD.importance.findIndex(d => d.key === "cash_share");
+
+const steps = [
+  { scene: "dots", kicker: "Forecaster · Step 1 · Accuracy",
+    title: "How good is the forest?",
+    body: `<p>Each dot is one of the <b>${MD.meta.loans} loans</b>. It sits at the default probability the forest gave it. That score came from a model that <b>never saw that loan</b>: it was trained on the other four-fifths of the loans (5-fold cross-validation).</p>
+           <p>The forest uses ${MD.meta.features} features from each account's history <b>before the loan started</b>. Anything after the loan started is left out, because overdrafts and penalties after a default are caused by the default.</p>
+           <p>Every score right of the <b>${S.pct(THR, 0)} cut-off</b> counts as "will default".</p>`,
+    stats: [{ v: MT.auc.toFixed(2), l: "AUC (0.5 = coin flip, 1 = perfect ranking)" },
+            { v: `${CF.tp} / ${CF.tp + CF.fn}`, l: "real defaults caught (recall)", c: "--s2" },
+            { v: S.pct(MT.precision, 0), l: `of "will default" calls were right (precision)` }],
+    change: "682 dots streamed onto the chart. Repaid loans (blue) bunch up at low scores. Defaulted loans (orange) spread out to the right. The dashed line is the cut-off between \"won't default\" and \"will default\".",
+    note: `The cut-off is the one with the best balance of recall and precision (F1). The forest gives defaults extra weight because only ${S.pct(MT.base_rate)} of loans defaulted, so its scores run higher than the real default rate. Read them as a ranking, not as calibrated odds.` },
+
+  { scene: "imp", kicker: "Forecaster · Step 2 · What it relies on",
+    title: "What does the forest lean on?",
+    body: `<p>To measure how much the forest relies on a feature, we <b>shuffle that one column</b> across held-out loans and see how far the AUC drops. A big drop means it relies on that feature heavily.</p>
+           <p>The top signals are <b>days spent below zero</b> and whether it's a <b>joint account</b>. <b>Cash share of income</b> comes in at <b>#${cashImp + 1}</b>: a real signal, but not the main one.</p>`,
+    stats: cashImp >= 0 ? [{ v: MD.importance[cashImp].value.toFixed(3), l: "AUC lost when cash share is shuffled", c: "--s2" }] : [],
+    change: "The dots gave way to ten bars, one per feature, longest at the top. Cash share is the orange bar; the rest are grey.",
+    note: "Features that carry the same information share the credit. Income, spending and balance overlap, so each one alone looks smaller than the group." },
+
+  { scene: "ice", sel: false, kicker: "Forecaster · Step 3 · Cash share alone",
+    title: "Change cash share, keep everything else fixed.",
+    body: `<p>For every borrower we kept every other feature at its real value and moved <b>only cash share</b> from 0% to 100%. Each faint line is one borrower. The bold line is the <b>average</b>.</p>
+           <p>Real borrowers fall into two groups: <b>${nLow}</b> get little or no income as cash (under ${S.pct(Math.ceil(d3.max(B.filter(b => b.cash < 0.5), b => b.cash) * 100) / 100, 0)}), and <b>${nHigh}</b> get almost all of it as cash (${cashPct(d3.quantile(hiBand, 0.05))}–${cashPct(d3.quantile(hiBand, 0.95))}). The ticks along the bottom mark where each borrower really is.</p>
+           <p>Below 98% the forest hardly reacts. From <b>98% up to 99.7%</b> the average forecast climbs from <b>${S.pct(at(0.98), 0)} to ${S.pct(at(1), 0)}</b>.</p>`,
+    stats: [{ v: S.pct(at(0.98), 0), l: "average forecast at 98% cash", c: "--s1" }, { v: S.pct(at(1), 0), l: "average forecast at 100% cash", c: "--s2" }],
+    change: "The bars gave way to 682 faint lines and one bold average. The x-axis is zoomed: 10–95% is squeezed into a narrow band, and the 95–100% range, where real borrowers cluster, is stretched out.",
+    note: "These what-if lines come from a forest trained on all 682 loans, so they show what the model learned, not proof that cash causes default. Cash-heavy accounts differ in other ways too." },
+
+  { scene: "ice", sel: true, kicker: "Your turn · Forecast one borrower",
+    title: "Drag cash share and watch one forecast move.",
+    body: `<p>Pick a borrower, or roll a random defaulter or non-defaulter. The slider starts at their <b>real cash share</b>. Their other ${MD.meta.features - 1} features stay fixed.</p>
+           <p>The readout under the chart shows the forecast and the call it makes (cut-off <b>${S.pct(THR, 0)}</b>), next to what really happened to the loan.</p>`,
+    change: "One borrower's line is drawn bold and the rest fade back. The dot rides the line as you drag. The dashed line marks their real cash share.",
+    note: `For most borrowers cash share alone moves the forecast by under ${S.pct(d3.quantile(B.map(b => d3.max(b.curve) - d3.min(b.curve)).sort(d3.ascending), 0.9), 0)}. The verdict usually flips only for borrowers already near the cut-off. Their days below zero, household and balance carry more weight.` },
+];
+
+/* ---------- scaffolding ---------- */
+const W = 900, H = 520, M = { l: 64, r: 30, t: 40, b: 46 };
+const svg = d3.select("#viz");
+const gDots = svg.append("g"), gImp = svg.append("g").style("opacity", 0), gIce = svg.append("g").style("opacity", 0);
+const col = b => b.def ? "var(--s2)" : "var(--s1)";
+
+/* ---------- scene 1: held-out scores as a two-band beeswarm ---------- */
+const px = d3.scaleLinear().domain([0, 1]).range([M.l + 70, W - M.r]);
+const bands = { 0: { y: 170, name: "Repaid", n: B.length - MD.meta.defaulted }, 1: { y: 392, name: "Defaulted", n: MD.meta.defaulted } };
+const R = 3.3;
+[0, 1].forEach(d => {                           // simple deterministic beeswarm per band
+  const placed = [];
+  B.filter(b => b.def === d).sort((a, b) => a.oof - b.oof).forEach(b => {
+    const x = px(b.oof);
+    for (let k = 0; ; k++) {
+      const off = (k % 2 ? 1 : -1) * Math.ceil(k / 2) * R * 0.9;
+      if (!placed.some(p => Math.abs(p.x - x) < 2 * R && Math.abs(p.o - off) < 2 * R)) { placed.push({ x, o: off }); b.bx = x; b.by = bands[d].y + off; break; }
+    }
+  });
+});
+const tx = px(THR);
+gDots.append("rect").attr("x", tx).attr("y", M.t).attr("width", W - M.r - tx).attr("height", H - M.t - M.b).style("fill", "var(--accent-wash)");
+gDots.append("g").attr("class", "axis").attr("transform", `translate(0,${H - M.b})`)
+  .call(d3.axisBottom(px).ticks(10).tickFormat(d3.format(".0%")).tickSize(4).tickPadding(6));
+gDots.append("text").attr("class", "sub").attr("x", W - M.r).attr("y", H - 8).attr("text-anchor", "end").text("held-out default probability from the forest");
+gDots.append("line").attr("x1", tx).attr("x2", tx).attr("y1", M.t - 6).attr("y2", H - M.b).style("stroke", "var(--ink-2)").style("stroke-dasharray", "5 4");
+gDots.append("text").attr("class", "callout").attr("x", tx - 8).attr("y", M.t + 6).attr("text-anchor", "end").text("← won't default");
+gDots.append("text").attr("class", "callout").attr("x", tx + 8).attr("y", M.t + 6).text("will default →");
+gDots.append("text").attr("class", "sub").attr("x", tx).attr("y", M.t - 12).attr("text-anchor", "middle").text(`cut-off ${S.pct(THR, 0)}`);
+[0, 1].forEach(d => {
+  gDots.append("text").attr("class", "lbl").attr("x", 8).attr("y", bands[d].y - 4).style("font-weight", 600).text(bands[d].name);
+  gDots.append("text").attr("class", "sub").attr("x", 8).attr("y", bands[d].y + 13).text(`${bands[d].n} loans`);
+});
+const quad = [
+  { x: tx - 12, y: bands[0].y - 82, a: "end", t: `${CF.tn} correctly cleared` },
+  { x: tx + 12, y: bands[0].y - 82, a: "start", t: `${CF.fp} false alarms` },
+  { x: tx - 12, y: bands[1].y - 72, a: "end", t: `${CF.fn} missed` },
+  { x: tx + 12, y: bands[1].y - 72, a: "start", t: `${CF.tp} caught` },
+];
+const quadLbl = gDots.selectAll("text.q").data(quad).join("text").attr("class", "q callout").attr("x", d => d.x).attr("y", d => d.y)
+  .attr("text-anchor", d => d.a).text(d => d.t).style("opacity", 0);
+const dots = gDots.selectAll("circle.d").data(B).join("circle").attr("class", "d").attr("r", R)
+  .attr("cx", px(0)).attr("cy", b => bands[b.def].y).style("fill", col).style("fill-opacity", 0.85).style("opacity", 0)
+  .on("mousemove", (ev, b) => S.tip.show(`<div class="t">Account ${b.id}</div><div class="r">Held-out score <b>${S.pct(b.oof, 1)}</b> → ${b.oof >= THR ? "will default" : "won't default"}</div>
+     <div class="r">Actually: <b>${b.def ? "defaulted" : "repaid"}</b></div><div class="r">Cash share ${S.pct(b.cash, 1)}</div>`, ev))
+  .on("mouseleave", S.tip.hide);
+let dotsShown = false;
+function drawDots() {
+  const T = S.T;
+  dots.transition().duration(T * 1.2).delay(b => dotsShown || !T ? 0 : b.oof * T).ease(S.ease)
+    .attr("cx", b => b.bx).attr("cy", b => b.by).style("opacity", 1);
+  quadLbl.transition().delay(dotsShown ? 0 : T * 1.8).duration(T / 2).style("opacity", 1);
+  dotsShown = true;
+}
+
+/* ---------- scene 2: permutation importance ---------- */
+const IMP = MD.importance;
+const iy = d3.scaleBand().domain(IMP.map(d => d.key)).range([M.t + 10, H - M.b]).padding(0.28);
+const ix = d3.scaleLinear().domain([0, d3.max(IMP, d => d.value) * 1.12]).range([290, W - M.r - 70]);
+gImp.append("g").attr("class", "grid").attr("transform", `translate(0,${H - M.b})`).call(d3.axisBottom(ix).ticks(5).tickSize(-(H - M.b - M.t)).tickFormat(""));
+gImp.append("g").attr("class", "axis").attr("transform", `translate(0,${H - M.b})`).call(d3.axisBottom(ix).ticks(5).tickFormat(d3.format(".2f")).tickSize(0).tickPadding(8)).select(".domain").remove();
+gImp.append("text").attr("class", "sub").attr("x", W - M.r).attr("y", H - 8).attr("text-anchor", "end").text("drop in AUC when this feature is shuffled");
+const isCash = d => d.key === "cash_share";
+const bars = gImp.selectAll("rect.b").data(IMP).join("rect").attr("class", "b").attr("rx", 3).attr("x", ix(0)).attr("y", d => iy(d.key))
+  .attr("height", iy.bandwidth()).attr("width", 0).style("fill", d => isCash(d) ? "var(--s2)" : "var(--muted)")
+  .on("mousemove", (ev, d) => S.tip.show(`<div class="t">${d.label}</div><div class="r">Shuffling it costs <b>${d.value.toFixed(3)}</b> AUC</div><div class="r">(full model AUC ${MT.auc.toFixed(3)})</div>`, ev))
+  .on("mouseleave", S.tip.hide);
+gImp.selectAll("text.n").data(IMP).join("text").attr("class", "n lbl").attr("x", ix(0) - 10).attr("y", d => iy(d.key) + iy.bandwidth() / 2 + 4)
+  .attr("text-anchor", "end").style("font-weight", d => isCash(d) ? 700 : 400).style("fill", d => isCash(d) ? "var(--ink)" : null).text((d, i) => `${i + 1}. ${d.label}`);
+const barVal = gImp.selectAll("text.v").data(IMP).join("text").attr("class", "v sub").attr("y", d => iy(d.key) + iy.bandwidth() / 2 + 4).attr("x", ix(0) + 6)
+  .text(d => d.value.toFixed(3)).style("opacity", 0);
+function drawImp() {
+  const T = S.T;
+  bars.attr("width", 0).transition().delay((d, i) => T ? i * 60 : 0).duration(T).ease(S.ease).attr("width", d => ix(d.value) - ix(0));
+  barVal.attr("x", ix(0) + 6).style("opacity", 0).transition().delay((d, i) => T ? i * 60 : 0).duration(T).ease(S.ease)
+    .attr("x", d => ix(d.value) + 6).style("opacity", 1);
+}
+
+/* ---------- scene 3/4: what-if curves on a zoomed cash-share axis ---------- */
+const gIdx = v => { const k = G.findIndex(g => Math.abs(g - v) < 1e-9); return k < 0 ? nearest(v) : k; };
+const i10 = gIdx(0.1), i95 = gIdx(0.95), nG = G.length - 1, L = M.l, Rr = W - M.r;
+const xc = d3.scaleLinear().domain([0, 0.1, 0.95, 1]).range([L, L + (Rr - L) * i10 / nG, L + (Rr - L) * i95 / nG, Rr]);
+const yc = d3.scaleLinear().domain([0, 1]).range([H - M.b, M.t]);
+gIce.append("rect").attr("x", xc(0.1)).attr("width", xc(0.95) - xc(0.1)).attr("y", M.t).attr("height", H - M.t - M.b).style("fill", "var(--grid)").style("opacity", 0.35);
+gIce.append("text").attr("class", "sub").attr("x", (xc(0.1) + xc(0.95)) / 2).attr("y", M.t - 8).attr("text-anchor", "middle").text("10–95% squeezed");
+gIce.append("text").attr("class", "sub").attr("x", (xc(0.95) + Rr) / 2).attr("y", M.t - 8).attr("text-anchor", "middle").text("95–100% zoomed in");
+gIce.append("g").attr("class", "grid").attr("transform", `translate(${L},0)`).call(d3.axisLeft(yc).ticks(5).tickSize(-(Rr - L)).tickFormat(""));
+gIce.append("g").attr("class", "axis").attr("transform", `translate(${L},0)`).call(d3.axisLeft(yc).ticks(5).tickFormat(d3.format(".0%")).tickSize(0).tickPadding(8)).select(".domain").remove();
+gIce.append("g").attr("class", "axis").attr("transform", `translate(0,${H - M.b})`)
+  .call(d3.axisBottom(xc).tickValues([0, 0.05, 0.1, 0.5, 0.95, 0.96, 0.97, 0.98, 0.99, 1]).tickFormat(d3.format(".0%")).tickSize(4).tickPadding(6));
+gIce.append("text").attr("class", "sub").attr("x", Rr).attr("y", H - 8).attr("text-anchor", "end").text("cash share of income (axis not to scale)");
+gIce.append("text").attr("class", "sub").attr("x", 8).attr("y", 18).text("forecast probability of default");
+gIce.append("line").attr("x1", L).attr("x2", Rr).attr("y1", yc(THR)).attr("y2", yc(THR)).style("stroke", "var(--ink-2)").style("stroke-dasharray", "5 4");
+gIce.append("text").attr("class", "sub").attr("x", L + 6).attr("y", yc(THR) - 6).text(`cut-off ${S.pct(THR, 0)}: above = "will default"`);
+const lineG = d3.line().x((p, i) => xc(G[i])).y(p => yc(p));
+const faint = gIce.append("g").selectAll("path").data(B).join("path").attr("d", b => lineG(b.curve))
+  .style("fill", "none").style("stroke", b => b.def ? "var(--s2)" : "var(--axis)").style("stroke-width", 1).style("opacity", 0);
+gIce.append("g").selectAll("line").data(B).join("line").attr("x1", b => xc(G[b.gi])).attr("x2", b => xc(G[b.gi]))
+  .attr("y1", H - M.b - 9).attr("y2", H - M.b).style("stroke", col).style("opacity", 0.35);
+const avg = gIce.append("path").attr("d", lineG(MD.pdp)).style("fill", "none").style("stroke", "var(--ink)").style("stroke-width", 3);
+const avgLbl = gIce.append("text").attr("class", "callout").attr("x", Rr - 4).attr("y", yc(MD.pdp[nG]) - 10).attr("text-anchor", "end").text("average");
+const selLine = gIce.append("path").style("fill", "none").style("stroke-width", 3.5).style("opacity", 0);
+const realMark = gIce.append("line").attr("y1", M.t).attr("y2", H - M.b).style("stroke", "var(--ink-2)").style("stroke-dasharray", "2 4").style("opacity", 0);
+const realLbl = gIce.append("text").attr("class", "sub").attr("y", M.t + 14).style("opacity", 0);
+const selDot = gIce.append("circle").attr("r", 7).style("stroke", "var(--surface)").style("stroke-width", 2.5).style("opacity", 0);
+const selLbl = gIce.append("text").attr("class", "callout").style("opacity", 0);
+const cross = gIce.append("line").attr("y1", M.t).attr("y2", H - M.b).style("stroke", "var(--axis)").style("opacity", 0).style("pointer-events", "none");
+let selMode = false, sel = null, slideIdx = 0;
+gIce.append("rect").attr("x", L).attr("y", M.t).attr("width", Rr - L).attr("height", H - M.t - M.b).style("fill", "transparent")
+  .on("mousemove", ev => {
+    const v = xc.invert(d3.pointer(ev)[0]), k = nearest(v), ps = B.map(b => b.curve[k]).sort(d3.ascending);
+    cross.attr("x1", xc(G[k])).attr("x2", xc(G[k])).style("opacity", 1);
+    S.tip.show(`<div class="t">Cash share ${S.pct(G[k], 1)}</div><div class="r">Average forecast <b>${S.pct(MD.pdp[k], 1)}</b></div>
+      <div class="r">Middle half of borrowers: ${S.pct(d3.quantile(ps, 0.25), 0)}–${S.pct(d3.quantile(ps, 0.75), 0)}</div>
+      <div class="r">${ps.filter(p => p >= THR).length} of ${B.length} called "will default"</div>
+      ${selMode && sel ? `<div class="r">Account ${sel.id}: <b>${S.pct(sel.curve[k], 1)}</b></div>` : ""}`, ev);
+  })
+  .on("mouseleave", () => { cross.style("opacity", 0); S.tip.hide(); });
+
+let iceShown = false;
+function drawIce(selOn) {
+  const T = S.T;
+  selMode = selOn;
+  faint.transition().duration(T).style("opacity", b => selOn ? 0.07 : b.def ? 0.3 : 0.16);
+  if (!iceShown && T) {
+    const len = avg.node().getTotalLength();
+    avg.style("stroke-dasharray", `${len} ${len}`).style("stroke-dashoffset", len)
+      .transition().delay(T * 0.5).duration(T * 1.6).ease(d3.easeLinear).style("stroke-dashoffset", 0).on("end", function () { d3.select(this).style("stroke-dasharray", null); });
+  }
+  iceShown = true;
+  avg.transition("o").duration(T).style("opacity", selOn ? 0.35 : 1);
+  avgLbl.transition().duration(T).style("opacity", selOn ? 0.35 : 1);
+  [selLine, realMark, realLbl, selDot, selLbl].forEach(s => s.transition().duration(T / 2).style("opacity", selOn ? 1 : 0));
+  if (selOn) updateSel(true);
+}
+
+/* ---------- borrower picker ---------- */
+const $ = s => document.querySelector(s);
+const whoSel = $("#who"), cs = $("#cs");
+cs.max = nG;
+whoSel.innerHTML = [1, 0].map(d => `<optgroup label="${d ? "Defaulted" : "Repaid"} (${B.filter(b => b.def === d).length})">` +
+  B.filter(b => b.def === d).map(b => `<option value="${b.i}">Account ${b.id} · cash ${S.pct(b.cash, 1)}</option>`).join("") + "</optgroup>").join("");
+// start on a defaulter whose forecast crosses the cut-off somewhere on the slider: the most instructive case
+const crossers = B.filter(b => b.def && d3.min(b.curve) < THR && d3.max(b.curve) >= THR);
+function choose(b) { sel = b; whoSel.value = b.i; slideIdx = b.gi; cs.value = slideIdx; updateSel(true); }
+const pick = d => { const pool = B.filter(b => b.def === d && b !== sel); choose(pool[Math.floor(Math.random() * pool.length)]); };
+whoSel.onchange = () => choose(B[+whoSel.value]);
+$("#rndD").onclick = () => pick(1);
+$("#rndR").onclick = () => pick(0);
+$("#reset").onclick = () => { slideIdx = sel.gi; cs.value = slideIdx; updateSel(false); };
+cs.oninput = () => { slideIdx = +cs.value; updateSel(false); };
+
+function updateSel(moveLine) {
+  if (!sel) return;
+  const T = moveLine ? S.T / 2 : 0, p = sel.curve[slideIdx], yes = p >= THR, pReal = sel.curve[sel.gi];
+  $("#csOut").textContent = S.pct(G[slideIdx], 1);
+  if (selMode) S.legend([[sel.def ? "--s2" : "--s1", `Account ${sel.id} (${sel.def ? "defaulted" : "repaid"})`], ["--ink", "Average of all 682"]]);
+  selLine.style("stroke", col(sel)).transition().duration(T).attr("d", lineG(sel.curve));
+  realMark.transition().duration(T).attr("x1", xc(G[sel.gi])).attr("x2", xc(G[sel.gi]));
+  realLbl.transition().duration(T).attr("x", xc(G[sel.gi]) + (sel.gi > nG * 0.8 ? -6 : 6)).attr("text-anchor", sel.gi > nG * 0.8 ? "end" : "start")
+    .text(`real: ${S.pct(sel.cash, 1)}`);
+  const dx = xc(G[slideIdx]), dy = yc(p);
+  selDot.style("fill", yes ? "var(--s2)" : "var(--s1)").transition().duration(T || 80).attr("cx", dx).attr("cy", dy);
+  selLbl.transition().duration(T || 80).attr("x", dx + (dx > W - 150 ? -12 : 12)).attr("y", dy - 12).attr("text-anchor", dx > W - 150 ? "end" : "start").text(S.pct(p, 1));
+  const right = yes === !!sel.def;
+  $("#readout").innerHTML = `
+    <div><div class="p" style="color:var(${yes ? "--s2" : "--s1"})">${S.pct(p, 1)}</div><div class="pl">forecast at ${S.pct(G[slideIdx], 1)} cash</div></div>
+    <div><span class="pill ${yes ? "yes" : "no"}">${yes ? "Will default" : "Won't default"}</span>
+      <div class="pl" style="margin-top:4px">Actually: <b style="color:var(--ink)">${sel.def ? "defaulted" : "repaid"}</b> ·
+        <span class="${right ? "ok" : "miss"}">${right ? "✓ forecast matches" : "✗ forecast wrong"}</span></div></div>
+    <div class="facts">Account <b>${sel.id}</b> · income <b>${S.money(sel.income)}</b>/mo · loan <b>${S.money(sel.amount)}</b> at <b>${S.money(sel.payment)}</b>/mo<br>
+      ${sel.joint ? "Joint account" : "Single owner"} · ${sel.card ? "has a card" : "no card"} ·
+      at real cash share ${S.pct(sel.cash, 1)}: <b>${S.pct(pReal, 1)}</b> (score from a forest that never saw this loan: ${S.pct(sel.oof, 1)})</div>`;
+  if (selMode) table([["Cash share", "Account " + sel.id, "Average borrower"], ...G.map((g, k) => [S.pct(g, 1), S.pct(sel.curve[k], 1), S.pct(MD.pdp[k], 1)])]);
+}
+
+/* ---------- step renderer ---------- */
+function render(i) {
+  const st = steps[i];
+  [[gDots, "dots"], [gImp, "imp"], [gIce, "ice"]].forEach(([g, k]) =>
+    g.transition().duration(S.T / 2).style("opacity", st.scene === k ? 1 : 0).style("pointer-events", st.scene === k ? "all" : "none"));
+  S.widget(st.sel ? "picker" : null);
+  if (st.scene === "dots") {
+    S.chartTitle(`Every loan, placed by its held-out default score (${MD.meta.folds}-fold cross-validation)`);
+    S.legend([["--s1", "Repaid"], ["--s2", "Defaulted"]]);
+    drawDots();
+    table([["", "Forecast: won't default", "Forecast: will default", "Total"],
+           ["Actually repaid", CF.tn, CF.fp, CF.tn + CF.fp], ["Actually defaulted", CF.fn, CF.tp, CF.fn + CF.tp],
+           ["AUC", MT.auc.toFixed(3), "", ""], ["Recall", S.pct(MT.recall), "", ""], ["Precision", S.pct(MT.precision), "", ""],
+           ["Accuracy", S.pct(MT.accuracy), "", ""], ["Cut-off", S.pct(THR, 0), "", ""]]);
+  } else if (st.scene === "imp") {
+    S.chartTitle("Permutation importance: top 10 of " + MD.meta.features + " features");
+    S.legend([["--s2", "Cash share of income"], ["--muted", "Other features"]]);
+    drawImp();
+    table([["Rank", "Feature", "AUC lost when shuffled"], ...IMP.map((d, k) => [k + 1, d.label, d.value.toFixed(4)])]);
+  } else {
+    S.chartTitle(st.sel ? "One borrower's forecast as cash share changes" : "Forecast vs cash share, all other features held fixed");
+    S.legend([["--axis", "Repaid borrower"], ["--s2", "Defaulted borrower"], ["--ink", "Average of all 682"]]);
+    if (st.sel && !sel) choose(crossers.length ? crossers.reduce((a, b) => d3.max(b.curve) - d3.min(b.curve) > d3.max(a.curve) - d3.min(a.curve) ? b : a) : B[0]);
+    drawIce(st.sel);
+    if (!st.sel) table([["Cash share", "Average forecast", `Borrowers called "will default"`], ...G.map((g, k) => [S.pct(g, 1), S.pct(MD.pdp[k], 1), B.filter(b => b.curve[k] >= THR).length])]);
+  }
+}
+function table(rows) {
+  document.querySelector("#table").innerHTML = `<table class="data">` +
+    rows.map((r, i) => `<tr>${r.map(c => i ? `<td>${c}</td>` : `<th>${c}</th>`).join("")}</tr>`).join("") + "</table>";
+}
+
+S.initTheme();
+S.start({ steps, render });
+</script>
+</body>
+</html>

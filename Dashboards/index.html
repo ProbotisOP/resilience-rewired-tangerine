@@ -25,7 +25,7 @@
     <button id="theme" class="theme-btn"></button>
   </div>
   <h1>Hidden patterns in 4,500 bank accounts</h1>
-  <p class="lede">Four guided stories built from <code>reports/phase2_hidden_patterns_discovery.md</code>. Each chart moves one step at a time,
+  <p class="lede">Four guided stories built from <code>reports/phase2_hidden_patterns_discovery.md</code>, plus a random-forest default forecaster. Each chart moves one step at a time,
     and the panel beside it explains what just changed and why it matters.</p>
   <div class="hero-stats" id="hero"></div>
   <p class="how">Click a story, then use <b>Next</b> or the <kbd>→</kbd> key. <kbd>Space</kbd> autoplays. Hover any mark for details. Every chart has a table view.</p>
@@ -59,6 +59,13 @@
       <ul><li>Only 19% of spending is fixed</li><li>Live what-if: adaptive vs. judges' runway</li></ul>
       <div class="go">Open story →</div>
     </a>
+    <a class="panel card" href="5_default_forecaster.html">
+      <div class="kicker">Model · Random forest</div>
+      <h3>Can a random forest see a default coming?</h3>
+      <p>A 300-tree forest trained only on pre-loan history. Check how accurate it is, see what it relies on, then drag one borrower's cash share and watch the forecast move.</p>
+      <ul><li>Held-out AUC <span id="auc"></span>, scored with 5-fold cross-validation</li><li>Live what-if: pick a borrower and drag the slider</li></ul>
+      <div class="go">Open story →</div>
+    </a>
   </div>
 
   <section class="panel notes">
@@ -67,9 +74,11 @@
   </section>
 </div>
 <script src="data/data.js"></script>
+<script src="data/model.js"></script>
 <script src="shared/story.js"></script>
 <script>
   const D = window.DATA;
+  document.getElementById("auc").textContent = window.MODEL ? window.MODEL.metrics.auc.toFixed(2) : "";
   document.getElementById("hero").innerHTML = [
     [D.totals.accounts.toLocaleString(), "accounts"], [D.totals.loans, "loans"], [D.totals.defaulted, "defaulted loans"],
     [D.totals.transactions_in_file.toLocaleString(), "transactions in file"],
@@ -77,6 +86,7 @@
   const d10 = D.deciles[9], d1 = D.deciles[0];
   document.getElementById("notes").innerHTML = [
     `Every number is rebuilt from the raw CSVs by <code>prep/build_data.py</code>. The dashboards themselves compute nothing except the two what-if sliders.`,
+    `<b>Forecaster:</b> the random forest is trained by <code>prep/build_model.py</code> using only account history from before each loan started. Accuracy figures are held-out (5-fold cross-validation). The cash-share what-if lines are precomputed, so the page just looks them up. They show what the model learned, not cause and effect.`,
     `<b>#3 Phantom wealth:</b> income, spending and overdraft rates match the report exactly. Buffer-based figures differ: D10 runway ${d10.runway.toFixed(1)} months and ${(d10.under6 * 100).toFixed(1)}% under 6 months (report: 3.7 and 84.4%); D1 ${d1.runway.toFixed(1)} months (report: 38.1). The story holds either way.`,
     `<b>#5 Cash gradient:</b> the report's quartile table (3.9% → 18.1%, uneven group sizes) did not reproduce. Equal quartiles give ${["Q1", "Q4"].map(q => { const m = D.loans.filter(r => r[5] === q); return (100 * m.filter(r => r[1]).length / m.length).toFixed(1) + "%"; }).join(" → ")}: same direction, steeper.`,
     `<b>#7 Debt shadow:</b> 35 accounts pay a "loan payment" with no loan on record (confirmed). The "competitor bank" reading isn't provable: those orders use the same bank codes as in-house loans.`,
