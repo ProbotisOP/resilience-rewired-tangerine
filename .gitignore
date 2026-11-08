@@ -37,6 +37,3 @@ wheels/
 # OS files
 .DS_Store
 Thumbs.db
-
-# Large raw dataset files (>20MB)
-tangerine/data/*.csv
