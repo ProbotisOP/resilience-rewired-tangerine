@@ -1,312 +1,264 @@
 """
-Screen 1: Portfolio Overview & Executive Discovery Dashboard
+Screen 1: Portfolio snapshot — interactive portfolio map, scenario thresholds and live what-if.
 """
 
+from typing import Any
+
+import numpy as np
+import pandas as pd
 import streamlit as st
-from src.ui.charting import axis_style, base_options, render_chart
 
-from src.data.local_repository import LocalDataRepository
 from src.services.discovery_engine import (
-    get_population_summary,
-    get_population_scenario_distributions,
     get_income_decile_discovery,
-    get_preloan_early_warning_data,
+    get_population_scenario_distributions,
+    get_population_summary,
     get_portfolio_scenario_runways,
+    get_preloan_early_warning_data,
 )
-from config.settings import THEME
+from src.services.insight_language import humanize_segment
+from src.ui import charts
+from src.ui.nav import new_click, open_account
+from src.ui.presentation import (MONEY_IN_GROUP_NOTE, PRELOAN_BUFFER_LABEL, buffer_group_name, money_in_group_range_text,
+                                 money_in_group_ranges, money_in_group_tick, money_in_ranges_caption,
+                                 preloan_buffer_explainer)
 
-def render_overview(repo: LocalDataRepository):
-    st.markdown("## 🏠 Financial resilience at a glance")
-    st.markdown(
-        "A clear view of cash flow, savings buffers and potential pressure points across the accounts in this dataset. "
-        "Compare simple what-if scenarios to support planning and customer conversations."
+SCENARIO_LABELS = {
+    "Baseline (Status Quo)": "Baseline",
+    "Job Loss (EI @ 55%)": "Money-in 55%",
+    "Emergency Repair (Cost = S)": "Repair = 1 mo spend",
+    "Combined Shock (EI 55% + Bills +15%)": "55% + bills +15%",
+}
+RUNWAY_BANDS = [(0, 3, "< 3 mo", charts.RED), (3, 6, "3–6 mo", charts.ORANGE), (6, 12, "6–12 mo", charts.YELLOW),
+                (12, 120, "12–120 mo", charts.BLUE), (120, 1e9, "No shortfall", charts.TEAL)]
+
+
+def _band(runway: pd.Series) -> pd.Series:
+    labels = pd.Series("No shortfall", index=runway.index)
+    for lo, hi, name, _ in RUNWAY_BANDS[:-1]:
+        labels[(runway >= lo) & (runway < hi)] = name
+    return labels
+
+
+def _card(col, title: str, value: str, body: str, color: str) -> None:
+    col.markdown(
+        f"""<div class="rr-card" style="border-left-color:{color}">
+        <div class="rr-card-title">{title}</div>
+        <div class="rr-card-value" style="color:{color}">{value}</div>
+        <div class="rr-card-body">{body}</div></div>""",
+        unsafe_allow_html=True,
     )
 
-    summary = get_population_summary(repo)
 
-    st.caption("Portfolio figures summarize each account first, then show the middle value across accounts.")
-    st.info(
-        f"**Portfolio signal:** {summary.accounts_in_deficit:,} of {summary.total_accounts:,} accounts "
-        f"({summary.pct_in_deficit:.1f}%) have typical monthly spending above typical money coming in. "
-        "Use the what-if below to explore how a change in income, bills or a one-time cost could affect the buffer."
-    )
-    kpi_row1 = st.columns(3)
-    kpi_row2 = st.columns(3)
-    with kpi_row1[0]:
-        st.metric("Accounts in data", f"{summary.total_accounts:,}")
-    with kpi_row1[1]:
-        st.metric("Typical monthly money in", f"${summary.median_I:,.0f}")
-    with kpi_row1[2]:
-        st.metric("Typical spending", f"${summary.median_S:,.0f}")
-    with kpi_row2[0]:
-        st.metric("Typical available balance", f"${summary.median_B:,.0f}")
-    with kpi_row2[1]:
-        st.metric("Accounts spending above inflow", f"{summary.accounts_in_deficit:,}", f"{summary.pct_in_deficit}% of accounts")
-    with kpi_row2[2]:
-        st.metric("Typical monthly recurring costs", f"${summary.median_F:,.0f}")
-
-    with st.expander("🧾 Where these portfolio numbers come from"):
-        st.markdown(
-            f"""
-            The app first calculates one value per account, then takes the median across
-            **{summary.total_accounts:,} accounts**:
-
-            - **Typical money in:** median of each account's monthly `money_in` median = **${summary.median_I:,.2f}**.
-            - **Typical spending:** median of each account's monthly `money_out` median = **${summary.median_S:,.2f}**.
-            - **Typical fixed costs:** median of account-level medians of household bills + insurance + loan payments = **${summary.median_F:,.2f}**.
-            - **Typical buffer:** median across accounts of each account's average `avg_daily_balance` over up to its latest six rows = **${summary.median_B:,.2f}**.
-            - **Spending above money in:** {summary.accounts_in_deficit:,} / {summary.total_accounts:,} accounts, or **{summary.pct_in_deficit:.1f}%**, where account median spending exceeds account median money in.
-
-            The word “typical” refers to medians, not a promise that every month will look this way.
-            """
-        )
-
-    st.markdown("---")
-
-    # 2. Portfolio Stress Under Challenge Scenarios
-    st.subheader("⚡ How could the portfolio handle a change?")
+def render_overview(repo: Any):
+    st.markdown("## Portfolio snapshot")
     st.caption(
-        "These scenarios apply the same transparent rules to every account. They are what-ifs, not predictions."
+        f"Data source: **{getattr(repo, 'source_label', 'Local CSV')}** · one value per account first, "
+        "then medians across accounts. Scenario results are simulations, not forecasts."
     )
+    summary = get_population_summary(repo)
+    metrics = repo.get_portfolio_account_metrics()
 
-    scenarios_df = get_population_scenario_distributions(repo)
-    scenario_display_df = scenarios_df.copy()
-    scenario_display_df["Scenario"] = scenario_display_df["Scenario"].replace(
-        {
-            "Baseline (Status Quo)": "Keep things steady",
-            "Job Loss (EI @ 55%)": "Money-in falls to 55% (what-if)",
-            "Emergency Repair (Cost = S)": "One-time cost of one typical spending month",
-            "Combined Shock (EI 55% + Bills +15%)": "Money-in at 55% + bills up 15% (what-if)",
-        }
-    )
+    k = st.columns(6)
+    k[0].metric("Accounts", f"{summary.total_accounts:,}")
+    k[1].metric("Median money in (I)", f"${summary.median_I:,.0f}")
+    k[2].metric("Median spending (S)", f"${summary.median_S:,.0f}")
+    k[3].metric("Median buffer (B)", f"${summary.median_B:,.0f}")
+    k[4].metric("In deficit (S > I)", f"{summary.accounts_in_deficit:,}", f"{summary.pct_in_deficit}%",
+                delta_color="off")
+    k[5].metric("Median fixed costs (F)", f"${summary.median_F:,.0f}")
 
-    col_tbl, col_chart = st.columns([1, 1.2])
-
-    with col_tbl:
-        st.markdown("**Accounts with less than the time shown**")
-        styled_df = scenario_display_df.style.format({
-            "Below 3M": "{:,}",
-            "Below 6M": "{:,}",
-            "Below 12M": "{:,}",
-            "Below 3M (%)": "{:.1f}%",
-            "Below 6M (%)": "{:.1f}%",
-            "Below 12M (%)": "{:.1f}%"
-        })
-        st.dataframe(styled_df, use_container_width=True, hide_index=True)
-        ei_row = scenarios_df.loc[scenarios_df["Scenario"] == "Job Loss (EI @ 55%)"].iloc[0]
-        combined_row = scenarios_df.loc[
-            scenarios_df["Scenario"] == "Combined Shock (EI 55% + Bills +15%)"
-        ].iloc[0]
-        st.info(
-            f"In the simulated 55% money-in scenario, {int(ei_row['Below 6M']):,} of "
-            f"{summary.total_accounts:,} accounts ({ei_row['Below 6M (%)']:.1f}%) have less than "
-            f"six months by the runway measure. The combined bill scenario gives "
-            f"{int(combined_row['Below 6M']):,} ({combined_row['Below 6M (%)']:.1f}%). "
-            "That is a scenario result—not a forecast or confirmed job-loss outcome."
+    # ---------------------------------------------------------------- headline finding
+    deciles = get_income_decile_discovery(repo)
+    ranges = money_in_group_ranges(metrics["I"])
+    st.markdown("### Biggest finding: higher money-in does not mean more resilience")
+    st.caption(f"{MONEY_IN_GROUP_NOTE} (450 accounts each). Each bar shows what happens to one group if money in "
+               "drops to 55%.")
+    left, right = st.columns([1.6, 1])
+    with left:
+        charts.bar_chart(
+            [money_in_group_tick(c) for c in deciles["Income Decile"]],
+            [
+                {"name": "Median runway, money-in at 55% (months)", "data": deciles["Median Runway (EI 55%)"].round(1).tolist(),
+                 "color": charts.TEAL, "labels": True},
+                {"name": "% of group under 6 months", "data": deciles["% Below 6 Months"].tolist(), "color": charts.ORANGE,
+                 "line": True, "axis": 1, "axis_name": "% under 6 mo", "suffix": "%"},
+            ],
+            key="ov_deciles", x_name="Money-in group (lowest → highest)", y_name="Median runway (months)",
+            title="If money in drops to 55%, how long does each money-in group last?",
+            subtitle="Groups run from the lowest money in (left) to the highest (right) · hover any bar",
+            value_suffix=" mo",
+            height=380,
         )
+        st.caption(money_in_ranges_caption(ranges))
+    with right:
+        d1, d10 = deciles.iloc[0], deciles.iloc[-1]
+        _card(st, f"Lowest money-in group · bottom 10% ({money_in_group_range_text('D1', ranges)})", f"{d1['Median Runway (EI 55%)']:.1f} months",
+              f"Median simulated runway; {int(d1['Accounts Below 6 Months'])} of {int(d1['Accounts'])} accounts "
+              f"({d1['% Below 6 Months']:.1f}%) fall under 6 months.", charts.TEAL)
+        _card(st, f"Highest money-in group · top 10% ({money_in_group_range_text('D10', ranges)})", f"{d10['Median Runway (EI 55%)']:.1f} months",
+              f"{int(d10['Accounts Below 6 Months'])} of {int(d10['Accounts'])} accounts ({d10['% Below 6 Months']:.1f}%) "
+              "fall under 6 months: spending scales with money-in, so a 45% cut opens a larger gap.", charts.ORANGE)
+        st.caption("Simulation on recorded money-in (not verified payroll or EI eligibility). Association, not cause.")
 
-    with col_chart:
-        # Grouped bar chart of shares below 6 months
-        scenario_labels = [
-            "Baseline",
-            "Money-in at 55% (simulation)",
-            "One-off cost = monthly spending",
-            "55% money-in + bills up 15%",
-        ]
-        scenario_options = base_options()
-        scenario_options.update(
-            {
-                "grid": {"left": 12, "right": 24, "top": 54, "bottom": 48, "containLabel": True},
-                "xAxis": {"type": "category", "data": scenario_labels, "axisLabel": {"color": THEME["text_muted"], "interval": 0, "rotate": 12, "hideOverlap": True}, **{k: v for k, v in axis_style().items() if k != "axisLabel"}},
-                "yAxis": {"type": "value", "name": "% of accounts", "min": 0, "max": 100, "axisLabel": {"color": THEME["text_muted"], "formatter": "{value}%"}, "splitLine": {"lineStyle": {"color": "rgba(141,153,174,.16)"}}},
-                "series": [
-                    {"name": f"Below {threshold} months", "type": "bar", "barMaxWidth": 28, "data": scenario_display_df[f"Below {threshold}M (%)"].round(1).tolist(), "itemStyle": {"color": color, "borderRadius": [5, 5, 0, 0]}, "emphasis": {"focus": "series"}}
-                    for threshold, color in ((3, THEME["alert_red"]), (6, THEME["primary_orange"]), (12, THEME["accent_blue"]))
-                ],
-            }
-        )
-        scenario_options["tooltip"]["trigger"] = "axis"
-        render_chart(scenario_options, key="portfolio-runway-distribution", height=430)
-    with st.expander("🧮 How the scenario counts are calculated"):
-        st.markdown(
-            """
-            For each account, the app applies the scenario to its own typical money-in,
-            spending, bills, and buffer. Runway is `buffer after one-off costs ÷ positive
-            monthly gap`, capped at 120 months; a non-positive gap is shown as 120+ months
-            when the buffer is positive. Runway is rounded to one decimal **before**
-            strict `<3`, `<6`, and `<12` month counts are calculated. The percentage is
-            `accounts below the marker ÷ accounts with monthly records × 100`.
-            """
-        )
-        st.caption(
-            f"Current 55% money-in scenario: {int(ei_row['Below 6M']):,} / "
-            f"{int(ei_row['Accounts']):,} accounts ({ei_row['Below 6M (%)']:.1f}%) "
-            "are below 6 months."
-        )
-
-    with st.expander("🎛️ Try a live portfolio what-if"):
-        st.caption(
-            "Move the dials to change the assumptions. The account-level runways and chart "
-            "recalculate from the supplied data; nothing is predicted."
-        )
-        dial1, dial2, dial3 = st.columns(3)
-        with dial1:
-            income_level = st.slider(
-                "Money-in level (usual = 100%)",
-                min_value=0,
-                max_value=150,
-                value=55,
-                step=5,
-                format="%d%%",
-                key="portfolio_whatif_income",
-                help=(
-                    "Sets monthly money-in as a share of its usual level. "
-                    "For example, 55% models 45% less money-in; 100% keeps it usual. "
-                    "This is a scenario, not a forecast."
-                ),
-            )
-        with dial2:
-            if st.session_state.get("portfolio_whatif_bills", 0) < 0:
-                st.session_state["portfolio_whatif_bills"] = 0
-            household_change = st.slider(
-                "Household-bill increase",
-                min_value=0,
-                max_value=100,
-                value=0,
-                step=5,
-                format="%d%%",
-                key="portfolio_whatif_bills",
-                help=(
-                    "Adds to the usual household bills. For example, 15% means "
-                    "bills are 15% higher; 0% keeps them unchanged."
-                ),
-            )
-        with dial3:
-            one_off_months = st.slider(
-                "One-off cost (typical spending months)",
-                min_value=0.0,
-                max_value=3.0,
-                value=0.0,
-                step=0.25,
-                key="portfolio_whatif_oneoff",
-                help=(
-                    "A one-time cost measured in typical monthly spending. "
-                    "For example, 1.0 means one usual month of spending; 0 means no cost."
-                ),
-            )
-
-        portfolio_runways = get_portfolio_scenario_runways(
-            repo,
-            income_multiplier=income_level / 100,
-            household_bill_change=household_change / 100,
-            one_off_spend_multiplier=one_off_months,
-        )
-        account_count = len(portfolio_runways)
-        selected_counts = {
-            threshold: int((portfolio_runways["runway_months"] < threshold).sum())
-            for threshold in (3, 6, 12)
-        }
-        selected_rates = {
-            threshold: count / account_count * 100
-            for threshold, count in selected_counts.items()
-        }
-
-        result_cols = st.columns(3)
-        for column, threshold in zip(result_cols, (3, 6, 12)):
-            column.metric(
-                f"Below {threshold} months",
-                f"{selected_counts[threshold]:,} accounts",
-                f"{selected_rates[threshold]:.1f}% of {account_count:,}",
-            )
-
-        custom_options = base_options()
-        custom_options.update(
-            {
-                "grid": {"left": 16, "right": 24, "top": 28, "bottom": 42, "containLabel": True},
-                "legend": {"show": False},
-                "xAxis": {"type": "category", "name": "Runway threshold", "data": [f"Below {threshold} months" for threshold in (3, 6, 12)], "axisLabel": {"color": THEME["text_muted"]}, **{k: v for k, v in axis_style().items() if k != "axisLabel"}},
-                "yAxis": {"type": "value", "name": "Accounts below threshold", "axisLabel": {"color": THEME["text_muted"], "formatter": "{value}"}, "splitLine": {"lineStyle": {"color": "rgba(141,153,174,.16)"}}},
-                "series": [{
-                    "name": "Accounts below threshold",
-                    "type": "bar",
-                    "barMaxWidth": 46,
-                    "data": [
-                        {"value": selected_counts[threshold], "itemStyle": {"color": color, "borderRadius": [6, 6, 0, 0]}, "rate": round(selected_rates[threshold], 1)}
-                        for threshold, color in zip((3, 6, 12), (THEME["alert_red"], THEME["primary_orange"], THEME["accent_blue"]))
-                    ],
-                    "label": {"show": True, "position": "top", "color": THEME["text_main"], "formatter": "{c}"},
-                    "emphasis": {"focus": "series", "itemStyle": {"shadowBlur": 14, "shadowColor": "rgba(255,91,0,.32)"}},
-                }],
-            }
-        )
-        custom_options["tooltip"]["trigger"] = "item"
-        render_chart(custom_options, key="portfolio-live-whatif", height=380)
-        with st.expander("🧾 Show the calculation"):
-            st.code(
-                "\n".join(
-                    [
-                        f"Scenario money-in multiplier = {income_level}%",
-                        f"Scenario household-bill change = {household_change}%",
-                        f"One-off cost = {one_off_months:.2f} × each account's typical spending",
-                        "For each account: apply the selected shock; compute buffer after one-off and monthly gap.",
-                        "Runway = 0 if the remaining buffer is non-positive; 120+ if the gap is non-positive; otherwise min(120, buffer ÷ gap), rounded to one decimal.",
-                        f"Displayed shares = accounts below threshold ÷ {account_count:,} accounts × 100.",
-                    ]
-                ),
-                language="text",
-            )
-            st.caption(
-                "Threshold counts use the same one-decimal official runway as the main portfolio matrix."
-            )
+    drivers = getattr(repo, "vulnerability_drivers", None)
+    if drivers is not None and not drivers.empty:
+        st.markdown("#### Why the portfolio cracks at 55% money-in — Snowflake ML Top Insights")
+        total = drivers.loc[drivers["segment"] == "Overall"]
+        jump = int(total["contribution"].iloc[0]) if not total.empty else int(drivers["contribution"].max())
+        top = drivers[drivers["segment"] != "Overall"].head(8).copy()
+        top["label"] = top["segment"].map(humanize_segment)
+        top = top.drop_duplicates("label")
+        a, b = st.columns([1.6, 1])
+        with a:
+            charts.bar_chart(
+                top["label"].tolist()[::-1],
+                [{"name": "Extra accounts under 6 months (baseline → 55% money-in)",
+                  "data": top["contribution"].round(0).astype(int).tolist()[::-1], "color": charts.ORANGE, "labels": True}],
+                key="ov_drivers", x_name="Segment", y_name="Extra accounts under 6 months", horizontal=True, height=460,
+                title=f"Segments behind the jump of {jump:,} accounts under 6 months",
+                subtitle="TOP_INSIGHTS · \"spends 90%+\" = typical spending ≥ 90% of typical money in · \"top 10% money-in\" = highest money-in group · no gender/age")
+        with b:
+            lead = top.iloc[0]
+            _card(st, "Largest driver", f"{lead['relative_contribution'] * 100:.0f}% of the jump", f"{lead['label']}: "
+                  f"{int(lead['accounts_under_6m_baseline'])} → {int(lead['accounts_under_6m_ei55'])} accounts under 6 months.",
+                  charts.ORANGE)
+            hidden = drivers[(drivers["accounts_under_6m_baseline"] == 0) & (drivers["segment"] != "Overall")]
+            if not hidden.empty:
+                h = hidden.iloc[0]
+                _card(st, "Hidden risk: fine today, exposed tomorrow", f"0 → {int(h['accounts_under_6m_ei55'])} accounts",
+                      f"{humanize_segment(h['segment'])}. None of them is under 6 months today.", charts.YELLOW)
+            st.caption("Segments are descriptive and overlap; they explain the simulated change, not a cause.")
 
     st.markdown("---")
 
-    # 3. Evidence-led portfolio observations
-    st.subheader("📊 Portfolio signals to explore")
-    st.caption("Three useful starting points for a business conversation. Each reflects the supplied data and a defined comparison, not a prediction.")
-    deciles = get_income_decile_discovery(repo)
-    preloan = get_preloan_early_warning_data(repo)
-    c1, c2, c3 = st.columns(3)
+    # ---------------------------------------------------------------- portfolio map
+    st.markdown("### Portfolio map — click any dot to open that account")
+    scenario_runway = get_portfolio_scenario_runways(repo, income_multiplier=0.55).set_index("account_id")["runway_months"]
+    frame = metrics[["I", "S", "B", "baseline_runway"]].join(scenario_runway.rename("ei_runway"))
+    frame["band"] = _band(frame["ei_runway"])
+    scores = getattr(repo, "stress_scores", None)
+    colour_by = st.radio("Colour accounts by", ["Simulated runway at 55% money-in", "Stress model tier"],
+                         horizontal=True, key="ov_colour", disabled=scores is None,
+                         help=None if scores is not None else "Model scores need the Snowflake connection.")
+    active = st.session_state.get("active_account_id")
+    groups = []
+    if colour_by == "Stress model tier" and scores is not None:
+        frame = frame.join(scores[["risk_tier", "stress_probability"]])
+        tiers = [("Standard", charts.GREY, 5, 0.45), ("Watch (top 5%)", charts.YELLOW, 8, 0.9),
+                 ("Priority outreach (top 2%)", charts.RED, 10, 0.95)]
+        for name, color, size, opacity in tiers:
+            sub = frame[frame["risk_tier"] == name]
+            groups.append({"name": f"{name} ({len(sub):,})", "color": color, "size": size, "opacity": opacity,
+                           "data": [[round(r.I, 2), round(r.B, 2), int(i), f"Stress estimate: {r.stress_probability * 100:.1f}%"]
+                                    for i, r in sub.iterrows()]})
+    else:
+        for _, _, name, color in RUNWAY_BANDS:
+            sub = frame[frame["band"] == name]
+            groups.append({"name": f"{name} ({len(sub):,})", "color": color, "size": 6,
+                           "data": [[round(r.I, 2), round(r.B, 2), int(i),
+                                     f"Runway at 55% money-in: {'120+' if r.ei_runway >= 120 else f'{r.ei_runway:.1f}'} mo"]
+                                    for i, r in sub.iterrows()]})
+    highlight = None
+    if active in frame.index:
+        highlight = [round(frame.at[active, "I"], 2), round(frame.at[active, "B"], 2), int(active), "Active account"]
+    event = charts.scatter_chart(
+        groups, key="ov_map", x_name="Typical money in per month ($)", y_name="Buffer: 6-month average balance ($)",
+        title="Money in vs buffer, all 4,500 accounts",
+        subtitle="Scroll to zoom · drag to pan · click legend items to hide groups · white ring = active account",
+        highlight_point=highlight, height=500,
+    )
+    clicked = new_click(event, "ov_map")
+    if clicked and isinstance(clicked.get("data"), list) and len(clicked["data"]) > 2:
+        open_account(int(clicked["data"][2]))
 
+    st.markdown("---")
+
+    # ---------------------------------------------------------------- scenario thresholds
+    st.markdown("### How the challenge scenarios move the portfolio")
+    scen = get_population_scenario_distributions(repo)
+    cats = [SCENARIO_LABELS.get(s, s) for s in scen["Scenario"]]
+    c1, c2 = st.columns([1.3, 1])
     with c1:
-        bottom = deciles.iloc[0]
-        top = deciles.iloc[-1]
-        st.markdown(f"""
-        <div style="background-color: {THEME['card_bg']}; padding: 18px; border-radius: 8px; border-left: 4px solid {THEME['success_green']};">
-            <h4 style="color: {THEME['text_main']}; margin-top:0;">Lower money-in group · 55% what-if</h4>
-            <p style="font-size: 24px; font-weight: bold; color: {THEME['success_green']}; margin-bottom: 5px;">{bottom['Median Runway (EI 55%)']:.1f} months</p>
-            <p style="font-size: 13px; color: {THEME['text_muted']};">
-                This is the middle estimated time the available balance could cover a monthly shortfall across
-                {int(bottom['Accounts'])} accounts, if recorded money coming in were set to 55% of usual.
-                The records do not verify pay or show actual job-loss outcomes.
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with c2:
-        st.markdown(f"""
-        <div style="background-color: {THEME['card_bg']}; padding: 18px; border-radius: 8px; border-left: 4px solid {THEME['primary_orange']};">
-            <h4 style="color: {THEME['text_main']}; margin-top:0;">Higher money-in group · 55% what-if</h4>
-            <p style="font-size: 24px; font-weight: bold; color: {THEME['primary_orange']}; margin-bottom: 5px;">{int(top['Accounts Below 6 Months'])} of {int(top['Accounts'])} under 6 months</p>
-            <p style="font-size: 13px; color: {THEME['text_muted']};">
-                If recorded money coming in were set to 55% of usual, {top['% Below 6 Months']:.1f}% of these accounts
-                would have less than six months of estimated buffer coverage. Groups are refreshed from the supplied records.
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with c3:
-        preloan_text = (
-            f"{preloan['cohort_size']:,} of {preloan.get('eligible_loan_count', 0):,} loans have "
-            "at least six earlier monthly records."
+        charts.bar_chart(
+            cats,
+            [{"name": "Under 3 months", "data": scen["Below 3M (%)"].tolist(), "color": charts.RED},
+             {"name": "Under 6 months", "data": scen["Below 6M (%)"].tolist(), "color": charts.ORANGE},
+             {"name": "Under 12 months", "data": scen["Below 12M (%)"].tolist(), "color": charts.BLUE}],
+            key="ov_scen", x_name="Scenario", y_name="Share of accounts (%)", title="Share of accounts below each runway marker", value_suffix="%", height=360,
+            subtitle="Toggle thresholds in the legend · hover a bar for exact counts",
         )
-        st.markdown(f"""
-        <div style="background-color: {THEME['card_bg']}; padding: 18px; border-radius: 8px; border-left: 4px solid {THEME['alert_red']};">
-            <h4 style="color: {THEME['text_main']}; margin-top:0;">Savings before a loan</h4>
-            <p style="font-size: 20px; font-weight: bold; color: {THEME['alert_red']}; margin-bottom: 5px;">{preloan_text}</p>
-            <p style="font-size: 13px; color: {THEME['text_muted']};">
-                For {preloan['cohort_size']:,} loans with at least six earlier monthly records, we compare savings before the loan with its recorded status.
-                Some loans may still be active. This comparison cannot explain why an outcome happened.
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
+    with c2:
+        st.dataframe(
+            scen.assign(Scenario=cats).style.format(
+                {"Below 3M": "{:,}", "Below 6M": "{:,}", "Below 12M": "{:,}",
+                 "Below 3M (%)": "{:.1f}%", "Below 6M (%)": "{:.1f}%", "Below 12M (%)": "{:.1f}%"}),
+            hide_index=True, use_container_width=True, height=200,
+        )
+        st.caption("Runway is rounded to one decimal before the strict < 3 / < 6 / < 12 counts, matching the judges' method.")
+
+    # ---------------------------------------------------------------- live what-if
+    st.markdown("### Live portfolio what-if")
+    st.caption("Starts at the baseline (no change), so both bars match. Drag a slider or pick a twist to see how the "
+               "portfolio moves away from today.")
+    presets = [("↺ Reset to baseline", 100, 0, 0.0), ("Job loss: money-in 55%", 55, 0, 0.0),
+               ("Repair = 1 month of spending", 100, 0, 1.0), ("55% money-in + bills +15%", 55, 15, 0.0)]
+    pc = st.columns(len(presets))
+    for col, (label, inc, bil, one) in zip(pc, presets):
+        col.button(label, key=f"ov_preset_{label}", use_container_width=True, on_click=st.session_state.update,
+                   kwargs={"ov_income": inc, "ov_bills": bil, "ov_oneoff": one})
+    d1c, d2c, d3c = st.columns(3)
+    income_level = d1c.slider("Money-in kept", 0, 150, 100, 5, format="%d%%", key="ov_income")
+    bills = d2c.slider("Household bills change", -30, 100, 0, 5, format="%d%%", key="ov_bills")
+    one_off = d3c.slider("One-off cost (months of spending)", 0.0, 3.0, 0.0, 0.25, key="ov_oneoff")
+    runs = get_portfolio_scenario_runways(repo, income_multiplier=income_level / 100,
+                                          household_bill_change=bills / 100, one_off_spend_multiplier=one_off)
+    base_runs = metrics["baseline_runway"]
+    edges = [0, 1, 3, 6, 12, 24, 60, 120, np.inf]
+    names = ["< 1", "1–3", "3–6", "6–12", "12–24", "24–60", "60–120", "120+"]
+    base_counts = pd.cut(base_runs, edges, right=False, labels=names).value_counts().reindex(names)
+    scen_counts = pd.cut(runs["runway_months"], edges, right=False, labels=names).value_counts().reindex(names)
+    m = st.columns(4)
+    for col, t in zip(m[:3], (3, 6, 12)):
+        n, nb = int((runs["runway_months"] < t).sum()), int((base_runs < t).sum())
+        col.metric(f"Under {t} months", f"{n:,}", f"{n - nb:+,} vs baseline", delta_color="inverse")
+    m[3].metric("Median runway", f"{runs['runway_months'].median():.1f} mo", f"baseline {base_runs.median():.1f} mo",
+                delta_color="off")
+    charts.bar_chart(
+        names,
+        [{"name": "Baseline", "data": base_counts.fillna(0).astype(int).tolist(), "color": charts.GREY},
+         {"name": "Your what-if", "data": scen_counts.fillna(0).astype(int).tolist(), "color": charts.ORANGE, "labels": True}],
+        key="ov_whatif_hist", x_name="Runway (months)", y_name="Accounts", title="Runway distribution: baseline vs your what-if",
+        subtitle="Months of runway (120+ = no monthly shortfall) · moves as you drag the sliders", height=360,
+    )
+
+    # ---------------------------------------------------------------- pre-loan association
+    pre = get_preloan_early_warning_data(repo)
+    q = pre["quartile_summary"]
+    st.markdown("### Pre-loan buffer and supplied loan outcome")
+    with st.expander(PRELOAN_BUFFER_LABEL, icon=":material/help:"):
+        st.markdown(preloan_buffer_explainer(pre))
+    a, b = st.columns([1.4, 1])
+    with a:
+        charts.bar_chart(
+            [buffer_group_name(v) for v in q["buffer_quartile"]],
+            [{"name": "Default rate", "data": (q["default_rate"] * (100 if q["default_rate"].max() <= 1 else 1)).round(1).tolist(),
+              "color": charts.RED, "labels": True}],
+            key="ov_preloan", x_name="Pre-loan buffer group (4 equal groups of loans)", y_name="Default rate (%)", title="Do loans default more when the savings cushion before the loan was small?", value_suffix="%",
+            subtitle=(f"Loans split into 4 equal groups by buffer in the 6 months before the loan · {pre['cohort_size']} of "
+                      f"{pre['eligible_loan_count']} loans had enough history"),
+            height=320,
+        )
+    with b:
+        od = pre["overdraft_summary"].set_index("had_pre_overdraft")
+        if True in od.index and False in od.index:
+            yes, no = od.loc[True], od.loc[False]
+            _card(st, "Negative-balance day in the 6 months before the loan",
+                  f"{int(yes['defaults'])} of {int(yes['loans'])} defaulted",
+                  f"vs {int(no['defaults'])} of {int(no['loans'])} ({no['default_rate']:.1f}%) without one. Small group "
+                  "(supplied flag includes running status D).", charts.RED)
+        st.dataframe(q.assign(buffer_quartile=q["buffer_quartile"].map(buffer_group_name)).rename(columns={"buffer_quartile": "Pre-loan buffer", "loans": "Loans", "defaults": "Defaults",
+                                       "default_rate": "Default rate", "median_buffer": "Median buffer"}),
+                     hide_index=True, use_container_width=True,
+                     column_config={"Default rate": st.column_config.NumberColumn(format="%.1f%%"),
+                                    "Median buffer": st.column_config.NumberColumn(format="dollar")})
+        st.caption("Unadjusted observational association; running C/D loans may still change. Not used to score anyone.")

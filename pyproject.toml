@@ -1,0 +1,11 @@
+[project]
+name = "resilience-rewired"
+version = "1.0.0"
+requires-python = ">=3.11"
+dependencies = [
+    "snowflake-connector-python[pandas]>=3.12",
+    "streamlit[snowflake]>=1.53",
+    "streamlit-echarts>=0.7.0",
+    "pandas>=2.0.0",
+    "numpy>=1.24.0",
+]

@@ -55,24 +55,17 @@ def identify_observed_indicators(
         indicators.append("Card recorded on owner disposition")
     return indicators
 
-def get_customer_profile(
-    account_id: int,
-    repo: Optional[LocalDataRepository] = None,
-    *,
-    account_meta: Optional[Dict[str, Any]] = None,
-    baseline: Optional[BaselineMetrics] = None,
-) -> Optional[CustomerProfile]:
+def get_customer_profile(account_id: int, repo: Optional[LocalDataRepository] = None) -> Optional[CustomerProfile]:
     """Builds and returns the comprehensive CustomerProfile for any account ID."""
     if repo is None:
         repo = LocalDataRepository.get_instance()
 
-    acc_meta = account_meta if account_meta is not None else repo.get_account_meta(account_id)
+    acc_meta = repo.get_account_meta(account_id)
     if not acc_meta:
         return None
 
-    if baseline is None:
-        monthly_df = repo.get_monthly_summary(account_id)
-        baseline = compute_official_baseline(account_id, monthly_df, acc_meta)
+    monthly_df = repo.get_monthly_summary(account_id)
+    baseline = compute_official_baseline(account_id, monthly_df, acc_meta)
     indicators = identify_observed_indicators(acc_meta, baseline)
 
     age = acc_meta.get("owner_age")

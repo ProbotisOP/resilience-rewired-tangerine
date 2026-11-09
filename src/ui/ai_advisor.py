@@ -1,88 +1,95 @@
-"""Screen 6: Answers grounded in verified deterministic account metrics."""
+"""
+Screen 6: TANG, Tangerine's resilience assistant — help chatbot backed by the RESILIENCE_INTELLIGENCE_AGENT.
+"""
+
+from typing import Any
 
 import streamlit as st
 
-from src.data.local_repository import LocalDataRepository
 from src.services.baseline_metrics import compute_official_baseline
-from src.services.customer_profile import get_customer_profile
-from src.services.shock_engine import simulate_shock
-from src.services.recovery_planner import build_goal_plan, build_backup_plan
-from src.services.ai_narrative import get_ai_narrative, answer_verified_question
-from config.scenarios import OFFICIAL_PRESETS
-from src.ui.presentation import scenario_display_name
+
+TOOL_LABELS = {
+    "financial_analyst": "Cortex Analyst · semantic view",
+    "system_execute_sql": "SQL execution",
+    "shock_calculator": "Deterministic shock function",
+    "documentation_search": "Cortex Search · evidence & guide",
+}
+SUGGESTIONS = [
+    "Why is this account financially vulnerable?",
+    "What changed in this account over its latest six months?",
+    "Which observed factors contribute most to the future stress signal?",
+    "What happens if the customer's monthly money-in falls by 45%?",
+    "How much monthly improvement is needed for a six-month runway under EI at 55%?",
+    "Compare this account with other accounts that have similar money in.",
+    "What support conversation could an advisor start, and what can't be promised?",
+    "How is runway calculated, and what are its limits?",
+]
 
 
-def render_ai_advisor(repo: LocalDataRepository):
-    st.markdown("## 💬 Ask about this account")
-    st.caption(
-        "Get a plain-language explanation of the figures available for this account. Optional AI can help explain them; it does not calculate or change the results."
-    )
-
+def render_ai_advisor(repo: Any):
     account_id = st.session_state.get("active_account_id")
-    if account_id not in repo.get_all_accounts():
-        st.error("Select an account from the supplied directory before opening the advisor.")
-        return
-    monthly_df = repo.get_monthly_summary(account_id)
-    account_meta = repo.get_account_meta(account_id)
-    if account_meta is None or monthly_df.empty:
-        st.error(f"Account #{account_id} has no usable profile in the loaded data.")
-        return
-    baseline = compute_official_baseline(
-        account_id,
-        monthly_df,
-        account_meta,
-    )
-    profile = get_customer_profile(account_id, repo, account_meta=account_meta, baseline=baseline)
-    if not profile:
-        st.error(f"Account #{account_id} has no usable profile in the loaded data.")
-        return
-    preset_idx = st.session_state.get("active_preset_idx", 1)
-    if not isinstance(preset_idx, int) or not 0 <= preset_idx < len(OFFICIAL_PRESETS):
-        preset_idx = 1
-    scenario = OFFICIAL_PRESETS[preset_idx]
-    shock = simulate_shock(baseline, scenario)
-    goal = build_goal_plan(baseline, target_months=3)
-    backup = build_backup_plan(baseline, shock, account_meta)
-    narrative = get_ai_narrative(profile, baseline, shock, goal, backup)
+    meta = repo.get_account_meta(account_id) or {}
+    base = compute_official_baseline(account_id, repo.get_monthly_summary(account_id), meta)
 
-    st.markdown(f"### Account #{account_id} · {scenario_display_name(scenario)}")
-    st.info(narrative["headline"])
-    st.write(narrative["executive_summary"])
-    if narrative.get("ai_explanation"):
-        st.markdown("**Optional Gemini explanation**")
-        st.write(narrative["ai_explanation"])
-    st.caption(narrative["ai_status"])
+    st.markdown("<div class='tang-hero'><div class='tang-logo'>🍊</div><div><div class='tang-name'>TANG</div>"
+                "<div class='tang-sub'>Tangerine's resilience assistant · powered by Snowflake Cortex</div></div></div>",
+                unsafe_allow_html=True)
+    st.caption("TANG answers from Snowflake tools only: Cortex Analyst over the financial semantic view, the deterministic "
+               "shock function, and Cortex Search over the project evidence and support guide. Every statement is labelled "
+               "OBSERVED FACT, CALCULATED, SIMULATED, MODEL ESTIMATE or PROPOSED ACTION.")
+    prob = meta.get("ml_stress_probability")
+    st.markdown(
+        f"<div class='rr-verdict'><span>Talking about</span><b>Account #{account_id}</b> · buffer ${base.B:,.2f} · "
+        f"runway {base.baseline_runway_label}" + (f" · stress estimate {prob * 100:.1f}%" if prob is not None else "") + "</div>",
+        unsafe_allow_html=True)
 
-    st.markdown("#### The figures behind this answer")
-    metric_cols = st.columns(4)
-    metric_cols[0].metric("Typical money in", f"${baseline.I:,.2f}/mo")
-    metric_cols[1].metric("Typical spending", f"${baseline.S:,.2f}/mo")
-    metric_cols[2].metric("Scenario monthly gap", f"${shock.monthly_gap:,.2f}/mo")
-    metric_cols[3].metric("Buffer after one-off cost", f"${shock.buffer_left:,.2f}")
-    with st.expander("🧾 Show the calculations and limits"):
-        st.code(
-            "\n".join(
-                [
-                    f"Money in = median of {baseline.history_months} monthly money_in rows = ${baseline.I:,.2f}",
-                    f"Spending = median of {baseline.history_months} monthly money_out rows = ${baseline.S:,.2f}",
-                    f"Scenario money in = ${shock.income_after_shock:,.2f}",
-                    f"Scenario spending = ${shock.spending_after_shock:,.2f}",
-                    f"Monthly gap = spending - money in = ${shock.spending_after_shock:,.2f} - ${shock.income_after_shock:,.2f} = ${shock.monthly_gap:,.2f}",
-                    f"Buffer after one-off cost = ${baseline.B:,.2f} - ${shock.one_off_costs:,.2f} = ${shock.buffer_left:,.2f}",
-                    f"Challenge runway = {shock.runway_label}",
-                ]
-            ),
-            language="text",
-        )
-        st.markdown("**Limits**")
-        for limitation in narrative["limitations"]:
-            st.markdown(f"- {limitation}")
+    if not getattr(repo, "is_connected", False):
+        st.warning("TANG needs the Snowflake connection; the app is running on local CSVs.")
+        return
 
-    st.markdown("---")
-    st.markdown("### What would you like to know?")
-    question = st.text_input(
-        "Ask a question",
-        placeholder="For example: How much is the monthly gap in this scenario?",
-    )
-    if question:
-        st.write(answer_verified_question(question, baseline, shock))
+    history_key = f"chat_{account_id}"
+    history = st.session_state.setdefault(history_key, [])
+
+    top = st.columns([5, 1])
+    top[0].caption("Questions are scoped to the active account; change it from the sidebar or any chart.")
+    if top[1].button("Clear chat", use_container_width=True, disabled=not history):
+        st.session_state[history_key] = []
+        st.rerun()
+
+    queued = None
+    if not history:
+        cols = st.columns(2)
+        for i, q in enumerate(SUGGESTIONS):
+            if cols[i % 2].button(q, key=f"sugg_{i}", use_container_width=True):
+                queued = q
+
+    for msg in history:
+        with st.chat_message(msg["role"], avatar="🧑‍💼" if msg["role"] == "user" else "🍊"):
+            st.markdown(msg["content"])
+            if msg.get("tools"):
+                st.caption("Tools used: " + " → ".join(TOOL_LABELS.get(t["name"], t["name"]) for t in msg["tools"]))
+            for sql in msg.get("sql", []):
+                with st.expander("SQL evidence"):
+                    st.code(sql, language="sql")
+
+    prompt = st.chat_input(f"Ask TANG about account #{account_id}, a what-if, or the portfolio…") or queued
+    if prompt:
+        history.append({"role": "user", "content": prompt})
+        with st.chat_message("user", avatar="🧑‍💼"):
+            st.markdown(prompt)
+        with st.chat_message("assistant", avatar="🍊"):
+            with st.status("TANG is thinking…", expanded=False) as status:
+                try:
+                    reply = repo.ask_agent([{"role": m["role"], "content": m["content"]} for m in history[-10:]],
+                                           account_id=account_id)
+                except Exception as error:
+                    reply = {"text": f"TANG could not answer: {type(error).__name__}: {error}", "tools": [], "sql": []}
+                status.update(label="Done" if reply.get("tools") else "Answered", state="complete")
+            st.markdown(reply["text"])
+            if reply.get("tools"):
+                st.caption("Tools used: " + " → ".join(TOOL_LABELS.get(t["name"], t["name"]) for t in reply["tools"]))
+            for sql in reply.get("sql", []):
+                with st.expander("SQL evidence"):
+                    st.code(sql, language="sql")
+        history.append({"role": "assistant", "content": reply["text"], "tools": reply.get("tools", []),
+                        "sql": reply.get("sql", [])})

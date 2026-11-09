@@ -1,261 +1,167 @@
 """
-Resilience Rewired: Financial Resilience Intelligence Platform
-Sheridan Datathon 2026 — Tangerine Track
-Team: CTRL + ALT + WIN (Satnam Singh & Antigravity)
+Resilience Rewired: Snowflake-powered financial resilience intelligence.
+Sheridan Datathon 2026 — Tangerine Track · Team CTRL + ALT + WIN
 """
- 
+
 import streamlit as st
-from pathlib import Path
- 
-# Streamlit Page Setup
-st.set_page_config(
-    page_title="Resilience Rewired · Tangerine",
-    page_icon="🛡️",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
- 
-# Custom High-Contrast Fintech Styling (Tangerine Navy & Orange)
+
+st.set_page_config(page_title="Resilience Rewired · Tangerine", page_icon="🛡️", layout="wide",
+                   initial_sidebar_state="expanded")
+
 st.markdown("""
 <style>
-    /* Global Page Styling */
-    .stApp {
-        background-color: #0B132B;
-        color: #F8F9FA;
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    }
-    .block-container {
-        max-width: 1500px;
-        padding: 1.5rem clamp(1rem, 3vw, 2.75rem) 3rem;
-    }
-    
-    /* Top Header & Accents */
-    h1, h2, h3, h4 {
-        color: #FFFFFF !important;
-        font-weight: 700 !important;
-    }
-    
-    /* Sidebar Styling */
-    [data-testid="stSidebar"] {
-        background-color: #121B36;
-        border-right: 1px solid #202D52;
-    }
-    
-    /* Metric Card Styling */
-    [data-testid="stMetricValue"] {
-        color: #FF5B00 !important;
-        font-size: 26px !important;
-        font-weight: 700 !important;
-        white-space: normal !important;
-        overflow: visible !important;
-        text-overflow: clip !important;
-        overflow-wrap: anywhere;
-    }
-    [data-testid="stMetricLabel"] {
-        color: #8D99AE !important;
-        font-size: 13px !important;
-        font-weight: 500 !important;
-        white-space: normal !important;
-        overflow: visible !important;
-        text-overflow: clip !important;
-    }
-    [data-testid="stMetric"] {
-        background: linear-gradient(145deg, rgba(28, 37, 65, .96), rgba(18, 27, 54, .96));
-        border: 1px solid #263557;
-        border-radius: 14px;
-        padding: 16px 18px;
-        min-height: 116px;
-        box-shadow: 0 8px 24px rgba(0, 0, 0, .12);
-    }
-
-    [data-testid="stMetricLabel"] *, [data-testid="stMetricValue"] * {
-        white-space: normal !important;
-        overflow: visible !important;
-        text-overflow: clip !important;
-    }
-    [data-testid="stMetricLabel"] p { line-height: 1.4; }
-    [data-testid="stPlotlyChart"] {
-        border: 1px solid rgba(58, 79, 122, .55);
-        border-radius: 14px;
-        overflow: hidden;
-        background: rgba(18, 27, 54, .35);
-    }
-    .stMarkdown p, [data-testid="stCaptionContainer"] { line-height: 1.6; }
-    @media (max-width: 900px) {
-        .block-container { padding-top: 1rem; }
-        [data-testid="stMetric"] { min-height: 104px; padding: 13px 14px; }
-        [data-testid="stMetricValue"] { font-size: 22px !important; }
-    }
-    @media (max-width: 600px) {
-        .block-container { padding-left: .75rem; padding-right: .75rem; }
-        [data-testid="stMetric"] { min-height: 92px; padding: 11px 12px; }
-        [data-testid="stMetricValue"] { font-size: 19px !important; }
-        h1 { font-size: 1.75rem !important; }
-        h2 { font-size: 1.45rem !important; }
-    }
-    [data-testid="stAlert"] {
-        border-radius: 10px;
-    }
-    [data-testid="stExpander"] {
-        border: 1px solid #263557;
-        border-radius: 10px;
-        background-color: rgba(18, 27, 54, 0.55);
-    }
-    
-    /* Custom Button Styling */
-    div.stButton > button:first-child {
-        background-color: #FF5B00;
-        color: white;
-        border: none;
-        border-radius: 9px;
-        padding: 10px 16px;
-        font-weight: 600;
-        transition: all 0.2s ease-in-out;
-    }
-    div.stButton > button:first-child:hover {
-        background-color: #FF7A29;
-        transform: translateY(-1px);
-        box-shadow: 0 4px 12px rgba(255, 91, 0, 0.3);
-    }
-    
-    /* Tabs & Expander */
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
-    }
-    .stTabs [data-baseweb="tab"] {
-        background-color: #16203D;
-        border-radius: 4px;
-        color: #8D99AE;
-        padding: 8px 16px;
-    }
-    .stTabs [aria-selected="true"] {
-        background-color: #FF5B00 !important;
-        color: white !important;
-    }
+  .block-container { max-width: 1480px; padding-top: 1.2rem; padding-bottom: 3rem; }
+  h2 { font-weight: 750 !important; letter-spacing: -0.02em; }
+  h3 { font-weight: 650 !important; letter-spacing: -0.01em; margin-top: .4rem !important; }
+  [data-testid="stSidebar"] { background: #111316; border-right: 1px solid #262A30; }
+  [data-testid="stMetric"] { background: #1C1F24; border: 1px solid #2B3037; border-radius: 12px; padding: 12px 14px;
+                             transition: border-color .15s ease, transform .15s ease; }
+  [data-testid="stMetric"]:hover { border-color: #FF6A13; transform: translateY(-1px); }
+  [data-testid="stMetricValue"] { font-size: 1.45rem !important; font-weight: 700 !important; }
+  [data-testid="stMetricLabel"] p { color: #9AA3AD !important; font-size: .8rem !important; }
+  .stTabs [data-baseweb="tab-list"] { gap: 4px; border-bottom: 1px solid #2B3037; }
+  .stTabs [data-baseweb="tab"] { border-radius: 8px 8px 0 0; padding: 8px 14px; }
+  .stTabs [aria-selected="true"] { color: #FF6A13 !important; }
+  div.stButton > button { border-radius: 10px; border: 1px solid #343A42; transition: all .15s ease; }
+  div.stButton > button:hover { border-color: #FF6A13; color: #FF6A13; transform: translateY(-1px); }
+  .rr-card { background: #1C1F24; border: 1px solid #2B3037; border-left: 4px solid #FF6A13; border-radius: 12px;
+             padding: 14px 16px; margin-bottom: 12px; }
+  .rr-card-title { color: #9AA3AD; font-size: .78rem; text-transform: uppercase; letter-spacing: .06em; }
+  .rr-card-value { font-size: 1.6rem; font-weight: 750; margin: 2px 0 4px; }
+  .rr-card-body { color: #C9CED4; font-size: .85rem; line-height: 1.4; }
+  .rr-hero { background: linear-gradient(135deg, #22252B 0%, #1A1C20 60%, #2A1A10 100%); border: 1px solid #2B3037;
+             border-radius: 16px; padding: 18px 22px; margin: 6px 0 14px; }
+  .rr-hero-title { font-size: 1.7rem; font-weight: 800; color: #FFFFFF; }
+  .rr-hero-sub { color: #9AA3AD; font-size: .86rem; margin: 4px 0 10px; }
+  .rr-badge { display: inline-block; border: 1px solid #3A4149; border-radius: 999px; padding: 4px 12px;
+              font-size: .8rem; font-weight: 600; color: #C9CED4; background: rgba(255,255,255,.03); }
+  .rr-verdict { background: #1C1F24; border: 1px solid #2B3037; border-left: 5px solid #FF6A13; border-radius: 12px;
+                padding: 12px 16px; margin: 8px 0 12px; color: #C9CED4; }
+  .rr-verdict span { display: block; color: #9AA3AD; font-size: .72rem; text-transform: uppercase; letter-spacing: .08em; }
+  .rr-verdict b { color: #FFFFFF; font-size: 1.15rem; }
+  .rr-brand { text-align: center; padding: 4px 0 10px; }
+  .rr-brand h2 { color: #FF6A13 !important; margin: 0; font-size: 1.6rem; }
+  .rr-status { border-radius: 8px; padding: 6px 10px; font-size: .75rem; text-align: center; margin-bottom: 8px; }
+  .tang-hero { background: linear-gradient(135deg, #2A1A10 0%, #1C1F24 70%); border: 1px solid #FF6A13; border-radius: 16px;
+               padding: 14px 20px; margin: 4px 0 12px; display: flex; align-items: center; gap: 14px; }
+  .tang-hero .tang-logo { font-size: 2.4rem; line-height: 1; }
+  .tang-hero .tang-name { color: #FF6A13; font-size: 1.9rem; font-weight: 850; letter-spacing: .04em; line-height: 1.05; }
+  .tang-hero .tang-sub { color: #C9CED4; font-size: .85rem; }
+  .rr-q { color: #FF6A13; font-size: .74rem; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; margin-top: 6px; }
+  .rr-qtitle { color: #FFFFFF; font-size: 1.12rem; font-weight: 700; margin: 0 0 2px; }
+  .rr-answer { background: rgba(255,106,19,.08); border-left: 3px solid #FF6A13; border-radius: 6px; padding: 6px 10px;
+               color: #E8EAED; font-size: .88rem; margin: 2px 0 6px; }
+  .rr-answer b { color: #FFB37A; }
+  .rr-nav-h { color: #6B747F; font-size: .68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .12em;
+              margin: 14px 0 2px 6px; }
+  [data-testid="stSidebar"] div.stButton { margin-bottom: -10px; }
+  [data-testid="stSidebar"] div.stButton > button { justify-content: flex-start; border: 1px solid transparent;
+              border-left: 3px solid transparent; border-radius: 8px; padding: 6px 12px; min-height: 2.3rem;
+              background: transparent; color: #C9CED4; font-weight: 500; }
+  [data-testid="stSidebar"] div.stButton > button:hover { background: rgba(255,255,255,.04); color: #FFFFFF;
+              border-left-color: #3A4149; transform: none; }
+  [data-testid="stSidebar"] div.stButton > button[kind="primary"],
+  [data-testid="stSidebar"] [data-testid="stBaseButton-primary"] { background: rgba(255,106,19,.12);
+              border-left: 3px solid #FF6A13; color: #FFFFFF; font-weight: 700; }
+  [data-testid="stSidebar"] div.stButton > button p { text-align: left; }
 </style>
 """, unsafe_allow_html=True)
- 
-from src.data.local_repository import LocalDataRepository
-from src.ui.overview import render_overview
-from src.ui.customer_explorer import render_customer_explorer
-from src.ui.shock_simulator import render_shock_simulator
-from src.ui.recovery_planner import render_recovery_planner
-from src.ui.discoveries import render_discoveries
-from src.ui.ai_advisor import render_ai_advisor
-from src.ui.methodology import render_methodology
-from overdraft_risk.ui import render_overdraft_risk
-from config.settings import THEME
- 
-PAGE_OPTIONS = [
-    "🏠 Portfolio overview",
-    "👤 Explore an account",
-<<<<<<< HEAD
-    "🎲 Test a what-if",
-    "🧭 Savings & shock plan",
-    "🔎 Explore portfolio patterns",
-    "💬 Ask about the data",
-    "🧮 How the figures are worked out",
-=======
-    "🎲 Try a what-if",
-    "🧭 Build a resilience plan",
-    "🔎 What the data shows",
-    "💬 Ask the data",
-    "🧮 How we calculate it",
-    "⚠️ Overdraft risk",
->>>>>>> 14df8198bdda52f121b270788ff0eef71c3c6fbc
-]
-PAGE_SLUGS = {
-    PAGE_OPTIONS[0]: "portfolio",
-    PAGE_OPTIONS[1]: "account",
-    PAGE_OPTIONS[2]: "what-if",
-    PAGE_OPTIONS[3]: "plan",
-    PAGE_OPTIONS[4]: "evidence",
-    PAGE_OPTIONS[5]: "ask",
-    PAGE_OPTIONS[6]: "method",
-    PAGE_OPTIONS[7]: "overdraft-risk",
-}
-PAGES_BY_SLUG = {slug: page for page, slug in PAGE_SLUGS.items()}
- 
- 
-def _sync_navigation_query_param():
-    selected_page = st.session_state["main_navigation"]
-    st.query_params["page"] = PAGE_SLUGS[selected_page]
- 
- 
-@st.cache_resource(show_spinner="Loading Tangerine financial intelligence repository...")
-def load_data_engine():
-    repo = LocalDataRepository.get_instance()
-    repo.load_all()
-    return repo
- 
-def main():
-    try:
-        repo = load_data_engine()
-    except FileNotFoundError as error:
-        st.error(f"Required source data is missing. {error}")
-        st.stop()
- 
-    valid_accounts = repo.get_all_accounts()
-    if not valid_accounts:
-        st.error("No valid account IDs are available in the loaded account directory.")
-        st.stop()
-    if st.session_state.get("active_account_id") not in valid_accounts:
-        st.session_state["active_account_id"] = valid_accounts[0]
- 
-    # Sidebar Branding & Navigation
-    with st.sidebar:
-        requested_page = PAGES_BY_SLUG.get(st.query_params.get("page", ""))
-        if requested_page is not None:
-            st.session_state["main_navigation"] = requested_page
-        elif "main_navigation" not in st.session_state:
-            st.session_state["main_navigation"] = PAGE_OPTIONS[0]
- 
-        st.markdown(f"""
-        <div style="text-align: center; padding: 10px 0 15px 0;">
-            <h2 style="color: {THEME['primary_orange']} !important; margin: 0; font-size: 28px;">🛡️ Tangerine</h2>
-            <p style="color: {THEME['text_main']}; margin: 0; font-weight: 600; font-size: 15px;">Resilience Rewired</p>
-            <span style="font-size: 11px; color: {THEME['text_muted']};">Sheridan Datathon 2026 · Team CTRL+ALT+WIN</span>
-        </div>
-        """, unsafe_allow_html=True)
- 
-        st.markdown("---")
- 
-        page = st.radio(
-            "Where would you like to go?",
-            options=PAGE_OPTIONS,
-            key="main_navigation",
-            on_change=_sync_navigation_query_param,
-        )
- 
-        st.markdown("---")
-        st.markdown("### Account selected")
-        active_id = st.session_state["active_account_id"]
-        st.info(f"**Selected Account:** #{active_id}")
-        
-<<<<<<< HEAD
-        st.caption("Change the selected account from “Explore an account” or “Test a what-if.”")
 
-=======
-        st.caption("You can switch accounts from “Explore an account” or “Try a what-if.”")
- 
->>>>>>> 14df8198bdda52f121b270788ff0eef71c3c6fbc
-    # Page Routing
-    if page == "🏠 Portfolio overview":
-        render_overview(repo)
-    elif page == "👤 Explore an account":
-        render_customer_explorer(repo)
-    elif page == "🎲 Test a what-if":
-        render_shock_simulator(repo)
-    elif page == "🧭 Savings & shock plan":
-        render_recovery_planner(repo)
-    elif page == "🔎 Explore portfolio patterns":
-        render_discoveries(repo)
-    elif page == "💬 Ask about the data":
-        render_ai_advisor(repo)
-    elif page == "🧮 How the figures are worked out":
-        render_methodology()
-    elif page == "⚠️ Overdraft risk":
-        render_overdraft_risk(repo)
- 
-if __name__ == "__main__":
-    main()
+from src.data.snowflake_repository import SnowflakeDataRepository  # noqa: E402
+from src.ui.ai_advisor import render_ai_advisor  # noqa: E402
+from src.ui.customer_explorer import render_customer_explorer  # noqa: E402
+from src.ui.discoveries import render_discoveries  # noqa: E402
+from src.ui.hidden_patterns import render_hidden_patterns  # noqa: E402
+from src.ui.methodology import render_methodology  # noqa: E402
+from src.ui.overview import render_overview  # noqa: E402
+from src.ui.recovery_planner import render_recovery_planner  # noqa: E402
+from src.ui.shock_simulator import render_shock_simulator  # noqa: E402
+
+PAGES = [
+    ("portfolio", "Portfolio snapshot", render_overview),
+    ("patterns", "Hidden patterns", render_hidden_patterns),
+    ("account", "Customer case", render_customer_explorer),
+    ("what-if", "Live twist solver", render_shock_simulator),
+    ("plan", "Recovery plan & brief", render_recovery_planner),
+    ("advisor", "🍊 :orange[**Ask TANG**]", render_ai_advisor),
+    ("evidence", "Evidence & model", render_discoveries),
+    ("method", "How we calculate", lambda repo: render_methodology()),
+]
+LABELS = [p[1] for p in PAGES]
+BY_SLUG = {p[0]: p[1] for p in PAGES}
+SLUG_BY_LABEL = {p[1]: p[0] for p in PAGES}
+RENDER = {p[1]: p[2] for p in PAGES}
+NAV_SECTIONS = [
+    ("The story", ["portfolio", "patterns"]),
+    ("Customer", ["account", "what-if", "plan"]),
+    ("AI assistant", ["advisor"]),
+    ("Proof", ["evidence", "method"]),
+]
+NAV_ICONS = {
+    "portfolio": ":material/dashboard:", "patterns": ":material/insights:", "account": ":material/person_search:",
+    "what-if": ":material/tune:", "plan": ":material/flag:", "evidence": ":material/fact_check:",
+    "method": ":material/functions:",
+}
+
+
+@st.cache_resource(show_spinner="Loading the nine tables from Snowflake…")
+def load_repo() -> SnowflakeDataRepository:
+    return SnowflakeDataRepository.get_instance()
+
+
+def _go(slug: str) -> None:
+    st.session_state["main_navigation"] = BY_SLUG[slug]
+    st.query_params["page"] = slug
+
+
+def _nav_menu() -> str:
+    """Grouped sidebar menu: one button per page; the active page is the primary (highlighted) button."""
+    current = st.session_state["main_navigation"]
+    for section, slugs in NAV_SECTIONS:
+        st.markdown(f"<div class='rr-nav-h'>{section}</div>", unsafe_allow_html=True)
+        for slug in slugs:
+            label = BY_SLUG[slug]
+            st.button(label, key=f"nav_{slug}", icon=NAV_ICONS.get(slug), use_container_width=True,
+                      type="primary" if label == current else "tertiary", on_click=_go, args=(slug,))
+    return current
+
+
+def main():
+    repo = load_repo()
+    accounts = repo.get_all_accounts()
+    requested_account = st.query_params.get("account")
+    if requested_account and requested_account != st.session_state.get("_applied_account_param"):
+        st.session_state["_applied_account_param"] = requested_account
+        if requested_account.isdigit() and int(requested_account) in accounts:
+            st.session_state["active_account_id"] = int(requested_account)
+    if st.session_state.get("active_account_id") not in accounts:
+        st.session_state["active_account_id"] = accounts[0]
+
+    requested = BY_SLUG.get(st.query_params.get("page", ""))
+    if requested:
+        st.session_state["main_navigation"] = requested
+    st.session_state.setdefault("main_navigation", LABELS[0])
+
+    with st.sidebar:
+        st.markdown("<div class='rr-brand'><h2>🛡️ Tangerine</h2><b>Resilience Rewired</b><br/>"
+                    "<span style='color:#9AA3AD;font-size:.75rem'>Sheridan Datathon 2026 · CTRL+ALT+WIN</span></div>",
+                    unsafe_allow_html=True)
+        if repo.is_connected:
+            st.markdown("<div class='rr-status' style='background:#12302B;color:#5EEAD4;border:1px solid #1F6F63'>"
+                        "● Snowflake · RESILIENCE_REWIRED_DB · RR_WH</div>", unsafe_allow_html=True)
+        else:
+            st.markdown("<div class='rr-status' style='background:#33240F;color:#FFD166;border:1px solid #7A5A1E'>"
+                        "● Local CSV fallback — Snowflake unavailable</div>", unsafe_allow_html=True)
+            if repo.connection_error:
+                st.caption(repo.connection_error[:200])
+        page = _nav_menu()
+        st.markdown("---")
+        st.session_state["sidebar_account"] = st.session_state["active_account_id"]
+        st.selectbox("Active account", accounts, format_func=lambda v: f"#{v}", key="sidebar_account",
+                              on_change=lambda: st.session_state.update(active_account_id=int(st.session_state["sidebar_account"])))
+        st.caption("Click any dot or bar on a chart to drill in. The active account follows you across pages.")
+
+    RENDER[page](repo)
+
+
+main()

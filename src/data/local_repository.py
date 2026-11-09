@@ -68,8 +68,6 @@ class LocalDataRepository:
         # 2. Clients
         cli_path = self.data_dir / "clients.csv"
         self.clients = pd.read_csv(cli_path)
-        self.clients['birth_date_dt'] = pd.to_datetime(self.clients['birth_date'])
-        self.clients['age_2025'] = ((pd.to_datetime('2025-12-31') - self.clients['birth_date_dt']).dt.days / 365.25).round(1)
 
         # 3. Dispositions
         disp_path = self.data_dir / "dispositions.csv"
@@ -86,8 +84,6 @@ class LocalDataRepository:
         # 6. Loans
         loan_path = self.data_dir / "loans.csv"
         self.loans = pd.read_csv(loan_path)
-        # Running at end of 2025 if status C or D
-        self.loans['is_running_end_2025'] = self.loans['status'].isin(['C', 'D'])
 
         # 7. Standing Orders
         so_path = self.data_dir / "standing_orders.csv"
@@ -96,15 +92,23 @@ class LocalDataRepository:
         # 8. Monthly Summary
         ms_path = self.data_dir / "monthly_summary.csv"
         self.monthly_summary = pd.read_csv(ms_path)
+        self._prepare_frames()
+
+        self._is_loaded = True
+        print("All base datasets loaded successfully.")
+
+    def _prepare_frames(self):
+        """Add derived columns shared by every backend that fills the raw tables."""
+        self.clients['birth_date_dt'] = pd.to_datetime(self.clients['birth_date'])
+        self.clients['age_2025'] = ((pd.to_datetime('2025-12-31') - self.clients['birth_date_dt']).dt.days / 365.25).round(1)
+        # Running at end of 2025 if status C or D
+        self.loans['is_running_end_2025'] = self.loans['status'].isin(['C', 'D'])
         self.monthly_summary['fixed_costs_row'] = (
             self.monthly_summary['household_bills'] +
             self.monthly_summary['insurance'] +
             self.monthly_summary['loan_payments']
         )
         self.monthly_summary = self.monthly_summary.sort_values(['account_id', 'month'])
-
-        self._is_loaded = True
-        print("All base datasets loaded successfully.")
 
     def get_monthly_summary(self, account_id: int) -> pd.DataFrame:
         """Returns sorted monthly summary rows for a specific account."""

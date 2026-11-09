@@ -4,15 +4,18 @@ import streamlit as st
 def render_methodology():
     st.title("🧮 How we calculate it")
     st.caption(
-        "Here is where the figures come from and what they mean. Scenarios use the supplied records to show possible outcomes; they are not forecasts."
+        "No black boxes: the figures come from the supplied records and the formulas below. "
+        "Scenarios are what-ifs, not forecasts."
     )
 
     st.header("A typical month for one account")
     st.markdown(
         """
-        We sort each account's available monthly records and calculate:
+        For an account, monthly records are sorted by month. We calculate:
 
         | Measure | Calculation |
+        |---|---|
+        | Plain-language figure | How it is calculated |
         |---|---|
         | **Money in** | Median of available monthly `money_in` rows |
         | **Spending** | Median of available monthly `money_out` rows |
@@ -21,8 +24,9 @@ def render_methodology():
         | **Buffer** | Average `avg_daily_balance` across up to the latest six available monthly rows |
         | **Monthly gap** | Spending minus money in, rounded to cents |
 
-        Accounts can have different amounts of history. The buffer uses up to the latest six
-        available records, which may not be six consecutive calendar months.
+        Account histories can differ in length. The buffer uses up to the latest six
+        available rows; it does not imply six complete calendar months when records
+        are missing.
         """
     )
 
@@ -30,33 +34,34 @@ def render_methodology():
     st.latex(r"\text{Runway} = \min\left(\frac{B}{S-I}, 120\right)")
     st.markdown(
         """
-        If the buffer is empty or below zero, the result is 0 months. If money coming in covers
-        spending and the buffer is positive, the result is shown as 120+ months. Otherwise, the
-        app divides the buffer by the monthly shortfall, up to a limit of 120 months, and rounds
-        to one decimal place.
+        In plain language: if the buffer is empty, the result is 0.0 months. If
+        money in covers spending and the buffer is positive, the display is 120+
+        months. Otherwise, divide the buffer by the monthly gap and cap the result
+        at 120 months. The app rounds runway to one decimal.
 
-        Portfolio charts count accounts with less than 3, 6 or 12 months. An account at exactly
-        6.0 months is not counted as below six months.
+        For portfolio charts, it rounds first, then counts accounts strictly below
+        3, 6, or 12 months. So a displayed result of exactly 6.0 is **not** below
+        six months.
         """
     )
 
     st.header("What-if scenarios")
     st.markdown(
         """
-        A what-if can change recorded money coming in, increase household bills, and/or add a
-        one-time cost. The app recalculates the monthly shortfall, remaining buffer and estimated
-        runway from the account's records. Recorded money in is not verified pay and does not
-        confirm eligibility for benefits.
+        Scenario settings change recorded money in, household bills, and/or add a
+        one-off cost. The app recalculates the monthly gap, remaining buffer and
+        runway using the same account figures. A money-in multiplier applies to
+        recorded money in; it does not verify employment income or benefit eligibility.
 
-        The timeline repeats the same monthly shortfall for each month shown. It is an illustration,
-        not a forecast of future transactions.
+        The timeline applies the same monthly gap in each selected scenario month.
+        That makes it a clear simulation, not a forecast of future transactions.
         """
     )
 
     st.header("How much monthly improvement reaches a target?")
     st.markdown(
-        "For the selected number of months, the app spreads the available buffer across that period "
-        "and calculates how much the monthly shortfall would need to improve:"
+        "For a selected target duration, the optimizer spreads the available buffer "
+        "across the target months and calculates the remaining monthly improvement:"
     )
     st.latex(
         r"\text{Required improvement} = "
@@ -65,26 +70,31 @@ def render_methodology():
     )
     st.markdown(
         """
-        The monthly change you choose is a separate what-if. It changes the estimated monthly
-        shortfall and runway. The app does not decide which costs you could change.
+        The selected monthly adjustment is a separate what-if. It changes the
+        proposed monthly gap and estimated runway; it does not change the official
+        challenge runway. The app does not choose which costs are adjustable.
         """
     )
 
     st.header("What the data can—and cannot—say")
     st.markdown(
         """
-        - An authorized user is someone listed as having account access. This does not tell us
-          their relationship to the account holder.
-        - A pattern in the records does not explain what caused it. What-if results are simulated,
+        - Authorized-user records indicate account access only; they do not
+          establish spouses, partners, or household relationships.
+        - Observed associations do not establish causation. Simulated shocks are
           not observed outcomes.
         - Cash withdrawals are not automatically treated as discretionary spending.
           A user may model an adjustment explicitly.
-        - Payment instructions to another provider do not confirm a contract, monthly bill or debt.
-        - When fixed costs are zero in the records, the plan asks for an estimate instead of
-          guessing essential costs.
-        - Optional AI can rephrase an explanation but does not calculate or change the figures.
-        - These calculations summarize the supplied data. They are not financial advice, a credit
-          decision, or a complete picture of a person's finances.
-        - The calculations are not compared with outside benchmarks.
+        - Standing orders and external-destination payment instructions do not
+          prove contractual monthly commitments or outstanding external debt.
+        - A zero fixed-cost figure is shown as missing/zero evidence; the planner
+          asks the user to enter any essential-cost assumption rather than
+          inventing one.
+        - Snowflake is not connected in this application. The SQL files are
+          optional setup examples. Gemini, when configured, is an explanation
+          layer and does not calculate or alter financial metrics.
+        - These calculations summarize the supplied data; they are not financial
+          advice, credit decisions, or a full picture of a person's finances.
+        - No external benchmark is used to calibrate the calculations.
         """
     )

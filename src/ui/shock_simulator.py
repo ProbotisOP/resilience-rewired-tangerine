@@ -1,548 +1,235 @@
 """
-Screen 3: Shock Simulator & Interactive Live Twist Engine
-Implements official competition shock cards, custom sliders, and adaptive runways.
+Screen 3: Live twist solver — apply any shock to any account and see the runway move.
 """
 
-import math
-import streamlit as st
-from src.ui.charting import axis_style, base_options, render_chart
+from typing import Any, Dict, List
+from html import escape
 
-from src.data.local_repository import LocalDataRepository
-from src.services.customer_profile import get_customer_profile
-from src.services.baseline_metrics import compute_official_baseline
-from src.services.shock_engine import simulate_shock
-from src.services.timeline_projection import project_shock_timeline
+import numpy as np
+import streamlit as st
+
 from config.scenarios import OFFICIAL_PRESETS, ShockScenario
-from config.settings import THEME
+from src.services.baseline_metrics import calculate_runway_details, compute_official_baseline
+from src.services.shock_engine import simulate_shock
+from src.services.timeline_projection import _timeline_duration, _timeline_series, project_shock_timeline
+from src.ui import charts
+from src.ui.nav import new_click
 from src.ui.presentation import scenario_display_description, scenario_display_name
 
-
-def _timeline_duration(shock, no_shortfall_duration: int) -> int:
-    finite_runways = [
-        min(shock.buffer_left / gap, 120.0)
-        for gap in (shock.monthly_gap, shock.adaptive_gap)
-        if shock.buffer_left > 0 and gap > 0
-    ]
-    if finite_runways:
-        return max(1, math.ceil(max(finite_runways)))
-    return 1 if shock.buffer_left <= 0 else no_shortfall_duration
+PRESET_LABELS = ["Baseline", "Job loss · EI 55%", "Furnace repair · 1 month of spending", "EI 55% + bills +15%"]
+PRESET_ICONS = [":material/balance:", ":material/work_off:", ":material/home_repair_service:", ":material/trending_down:"]
+PRESET_CHANGES = ["No change: today's money in and spending", "Money in drops to 55% of usual",
+                  "One-off bill = 1 month of typical spending", "Money in to 55% and household bills +15%"]
+HEAT_INCOME = list(range(0, 105, 10))          # % of money-in kept
+HEAT_BILLS = list(range(0, 55, 5))             # % household-bill increase
 
 
-def _timeline_figure(
-    baseline,
-    shock,
-    projection_baseline,
-    projection_adjusted,
-    frame: int,
-):
-    def series(projection, gap, runway, label):
-        x_values = ["Before event", "After one-off"]
-        y_values = [baseline.B, shock.buffer_left]
-        raw_runway = shock.buffer_left / gap if shock.buffer_left > 0 and gap > 0 else None
-        depletion_step = math.ceil(raw_runway) if raw_runway is not None else None
-
-        if raw_runway is not None and raw_runway <= 120 and frame >= depletion_step:
-            visible_points = projection.trajectory[: depletion_step - 1]
-            x_values.extend(point.month_name for point in visible_points)
-            y_values.extend(point.ending_buffer for point in visible_points)
-            x_values.append(f"{label} runway · {runway:.1f} mo")
-            y_values.append(0.0)
-        else:
-            visible_points = projection.trajectory[:frame]
-            x_values.extend(point.month_name for point in visible_points)
-            y_values.extend(point.ending_buffer for point in visible_points)
-        return x_values, y_values, raw_runway, depletion_step
-
-    month_names, baseline_values, challenge_raw_runway, challenge_depletion_step = series(
-        projection_baseline,
-        shock.monthly_gap,
-        shock.runway_months,
-        "Challenge",
-    )
-    adjusted_months, adjusted_values, _, _ = series(
-        projection_adjusted,
-        shock.adaptive_gap,
-        shock.adaptive_runway_months,
-        "Adjusted",
-    )
-
-    categories = list(dict.fromkeys(month_names + adjusted_months))
-    baseline_by_month = dict(zip(month_names, baseline_values))
-    adjusted_by_month = dict(zip(adjusted_months, adjusted_values))
-    options = base_options(zoom=True)
-    options.update(
-        {
-            "grid": {"left": 24, "right": 24, "top": 58, "bottom": 78, "containLabel": True},
-            "xAxis": {
-                "type": "category",
-                "boundaryGap": False,
-                "name": "Month in this what-if · final point marks runway",
-                "nameLocation": "middle",
-                "nameGap": 32,
-                "data": categories,
-                **axis_style(),
-            },
-            "yAxis": {
-                "type": "value",
-                "name": "Estimated buffer (CAD)",
-                "nameLocation": "middle",
-                "nameGap": 70,
-                "axisLabel": {"color": THEME["text_muted"], "formatter": "${value}"},
-                "axisLine": {"show": False},
-                "splitLine": {"lineStyle": {"color": "rgba(141,153,174,.16)"}},
-            },
-            "series": [
-                {
-                    "name": "Challenge scenario",
-                    "type": "line",
-                    "data": [baseline_by_month.get(month) for month in categories],
-                    "connectNulls": False,
-                    "smooth": 0.16,
-                    "showSymbol": True,
-                    "symbolSize": 7,
-                    "lineStyle": {"color": THEME["primary_orange"], "width": 3},
-                    "itemStyle": {"color": THEME["primary_orange"]},
-                    "areaStyle": {"color": "rgba(255,91,0,.10)"},
-                    "emphasis": {"focus": "series", "lineStyle": {"width": 4}},
-                    "markLine": {
-                        "symbol": "none",
-                        "silent": True,
-                        "lineStyle": {"color": THEME["alert_red"], "type": "dashed"},
-                        "label": {"formatter": "Buffer reaches $0", "color": THEME["alert_red"]},
-                        "data": [{"yAxis": 0}],
-                    },
-                },
-                {
-                    "name": "With your adjustment",
-                    "type": "line",
-                    "data": [adjusted_by_month.get(month) for month in categories],
-                    "connectNulls": False,
-                    "smooth": 0.16,
-                    "showSymbol": True,
-                    "symbolSize": 7,
-                    "lineStyle": {"color": THEME["accent_blue"], "width": 3, "type": "dashed"},
-                    "itemStyle": {"color": THEME["accent_blue"]},
-                    "emphasis": {"focus": "series", "lineStyle": {"width": 4}},
-                },
-            ],
-        }
-    )
-    return options, challenge_raw_runway, challenge_depletion_step
+def _apply_pending_scenario():
+    """Heatmap clicks queue slider values; apply them before the sliders are created."""
+    pending = st.session_state.pop("_pending_shock", None)
+    if pending:
+        for key, value in pending.items():
+            st.session_state[key] = value
 
 
-def _render_timeline_frame(
-    baseline,
-    shock,
-    projection_baseline,
-    projection_adjusted,
-    playback_key: str,
-    frame_key: str,
-    playing_key: str,
-):
-    duration = projection_baseline.duration_months
-    frame = min(duration, max(0, int(st.session_state.get(frame_key, 0))))
-    options, challenge_runway, depletion_step = _timeline_figure(
-        baseline,
-        shock,
-        projection_baseline,
-        projection_adjusted,
-        frame,
-    )
-    runway_text = (
-        f"Challenge runway: {shock.runway_months:.1f} months"
-        if shock.monthly_gap > 0 and shock.buffer_left > 0
-        else "No modeled depletion under the challenge formula"
-    )
-    st.progress(frame / duration, text=f"Month {frame} of {duration} · {runway_text}")
-    render_chart(options, key=f"live-buffer-plot-{playback_key}", height=420)
-
-    if frame == 0:
-        st.markdown(
-            f"### 🎬 The surprise lands\n"
-            f"Starting buffer: **${baseline.B:,.2f}** → after the one-off cost: "
-            f"**${shock.buffer_left:,.2f}**. The surprise has entered the chat."
-        )
-    elif (
-        challenge_runway is not None
-        and challenge_runway <= 120
-        and depletion_step is not None
-        and frame >= depletion_step
-    ):
-        st.warning(
-            f"### 🧯 Challenge runway reached at **{shock.runway_months:.1f} months**. "
-            "The chart stops at the modeled $0 point; this is a rehearsal, not a prediction."
-        )
-    else:
-        point = projection_baseline.trajectory[frame - 1]
-        if point.ending_buffer <= 0:
-            st.warning(
-                f"### 🧯 Month +{frame}: the modeled buffer reaches $0 or below. "
-                "This is a practice scenario, not a prediction."
-            )
-        elif point.net_flow >= 0:
-            st.success(
-                f"### ✨ Month +{frame}: modeled money in covers spending. "
-                f"Buffer at month end: **${point.ending_buffer:,.2f}**."
-            )
-        else:
-            st.info(
-                f"### 📅 Month +{frame}: modeled net change "
-                f"**${point.net_flow:,.2f}**. Buffer at month end: "
-                f"**${point.ending_buffer:,.2f}**."
-            )
-
-    if st.session_state.get(playing_key):
-        if frame >= duration:
-            st.session_state[playing_key] = False
-            st.rerun(scope="app")
-        else:
-            st.session_state[frame_key] = frame + 1
+def _use_preset(idx: int) -> None:
+    st.session_state["active_preset_idx"] = idx
 
 
-def render_shock_simulator(repo: LocalDataRepository):
-    st.markdown("## 🎲 Test a what-if for one account")
-    st.caption(
-        "Choose an account and change the assumptions to see how its savings buffer could respond. "
-        "These are calculations using supplied records, not predictions or financial advice."
+def _shock_cards(baseline, preset_idx: int) -> None:
+    """One card per challenge shock: what changes and this account's resulting runway. Click to load it."""
+    st.markdown("#### Shock examples")
+    st.caption("Each card applies one challenge shock to this account. Pick one to load it into the sliders below, "
+               "then fine-tune.")
+    cols = st.columns(len(OFFICIAL_PRESETS))
+    for i, (col, preset) in enumerate(zip(cols, OFFICIAL_PRESETS)):
+        result = simulate_shock(baseline, preset)
+        months = result.runway_months
+        color = charts.RED if months < 3 else charts.ORANGE if months < 6 else charts.YELLOW if months < 12 else charts.TEAL
+        active = i == preset_idx
+        col.markdown(
+            f"<div class='rr-card' style='border-left-color:{color};"
+            f"{'border-color:#FF6A13;background:rgba(255,106,19,.08);' if active else ''}min-height:150px'>"
+            f"<div class='rr-card-title'>{'● In use · ' if active else ''}{escape(PRESET_LABELS[i])}</div>"
+            f"<div class='rr-card-value' style='color:{color}'>{escape(result.runway_label)}</div>"
+            f"<div class='rr-card-body'>{escape(PRESET_CHANGES[i])}<br/>"
+            f"<span style='color:#9AA3AD'>{escape(scenario_display_description(preset))}</span></div></div>",
+            unsafe_allow_html=True)
+        col.button("In use" if active else "Use this shock", key=f"shock_card_{i}", icon=PRESET_ICONS[i],
+                   type="primary" if active else "secondary", use_container_width=True, disabled=active,
+                   on_click=_use_preset, args=(i,))
+
+
+def _runway_text(value: float, buffer_left: float, gap: float) -> str:
+    if buffer_left <= 0:
+        return "0.0 months"
+    if gap <= 0:
+        return "120+ months"
+    return f"{value:.1f} months"
+
+
+def render_shock_simulator(repo: Any):
+    _apply_pending_scenario()
+    accounts = repo.get_all_accounts()
+    active = st.session_state.get("active_account_id", accounts[0])
+    if active not in accounts:
+        active = accounts[0]
+
+    st.markdown("## Live twist solver")
+    st.caption("Pick the judge's account and a shock example. Everything recalculates instantly from the official formulas. "
+               "These are SIMULATED scenarios, not predictions.")
+
+    top = st.columns([1, 3])
+    with top[0]:
+        st.session_state["twist_account"] = active
+        st.selectbox("Account", accounts, format_func=lambda v: f"Account #{v}", key="twist_account",
+                     on_change=lambda: st.session_state.update(active_account_id=int(st.session_state["twist_account"])))
+    account_id = int(st.session_state["active_account_id"])
+    preset_idx = int(st.session_state.setdefault("active_preset_idx", 1))
+    preset = OFFICIAL_PRESETS[preset_idx]
+
+    meta = repo.get_account_meta(account_id) or {}
+    baseline = compute_official_baseline(account_id, repo.get_monthly_summary(account_id), meta)
+    _shock_cards(baseline, preset_idx)
+
+    # Slider keys are tied to the preset so switching cards loads that card's defaults.
+    keys = {name: f"tw_{name}_{preset.scenario_id}" for name in ("income", "bills", "oneoff", "fixed", "adjust")}
+    for name, default in (("income", int(preset.income_multiplier * 100)), ("bills", int(preset.household_bills_pct * 100)),
+                          ("oneoff", float(preset.one_off_spend_multiplier)), ("fixed", int(preset.one_off_fixed_amount)),
+                          ("adjust", 0)):
+        st.session_state.setdefault(keys[name], default)
+
+    st.markdown(f"#### Fine-tune: {PRESET_LABELS[preset_idx]}")
+
+    s = st.columns(5)
+    income_pct = s[0].slider("Money-in kept", 0, 150, step=5, format="%d%%", key=keys["income"])
+    bills_pct = s[1].slider("Household bills change", -30, 100, step=5, format="%d%%", key=keys["bills"])
+    one_off_mult = s[2].slider("One-off cost (× monthly spending)", 0.0, 3.0, step=0.25, key=keys["oneoff"])
+    fixed = s[3].number_input("Extra one-off cost ($)", 0, 100000, step=500, key=keys["fixed"])
+    scenario = ShockScenario(scenario_id=f"LIVE_{preset.scenario_id}", name=scenario_display_name(preset),
+                             description=scenario_display_description(preset), income_multiplier=income_pct / 100,
+                             household_bills_pct=bills_pct / 100, one_off_spend_multiplier=one_off_mult,
+                             one_off_fixed_amount=float(fixed), duration_months=preset.duration_months)
+    raw = simulate_shock(baseline, scenario)
+    adjust_max = max(100, int(raw.spending_after_shock))
+    if st.session_state[keys["adjust"]] > adjust_max:
+        st.session_state[keys["adjust"]] = adjust_max
+    adjust = s[4].slider("Test a monthly adjustment ($)", 0, adjust_max, step=50, key=keys["adjust"],
+                         help="A what-if you choose. The app never decides which spending could change.")
+    shock = simulate_shock(baseline, scenario, monthly_spending_adjustment=float(adjust))
+
+    # ---------------------------------------------------------------- headline numbers
+    st.markdown(
+        f"<div class='rr-verdict' style='border-left-color:{charts.RED if shock.runway_months < 6 else charts.TEAL}'>"
+        f"<span>SIMULATED · Account #{account_id} · {PRESET_LABELS[preset_idx]}</span>"
+        f"<b>{shock.runway_label}</b> of runway (baseline {baseline.baseline_runway_label}) · "
+        f"monthly gap ${shock.monthly_gap:,.2f} · buffer after one-off ${shock.buffer_left:,.2f} · {shock.resilience_status}</div>",
+        unsafe_allow_html=True)
+    m = st.columns(4)
+    d_in, d_out = round(shock.income_after_shock - baseline.I, 2), round(shock.spending_after_shock - baseline.S, 2)
+    m[0].metric("Money in / month", f"${shock.income_after_shock:,.2f}", charts.signed_money(d_in) if d_in else None)
+    m[1].metric("Spending / month", f"${shock.spending_after_shock:,.2f}", charts.signed_money(d_out) if d_out else None,
+                delta_color="inverse")
+    m[2].metric("Monthly gap", f"${shock.monthly_gap:,.2f}", "shortfall" if shock.monthly_gap > 0 else "surplus",
+                delta_color="inverse" if shock.monthly_gap > 0 else "normal")
+    m[3].metric("Buffer after one-off", f"${shock.buffer_left:,.2f}", f"-${shock.one_off_costs:,.2f}" if shock.one_off_costs else "no one-off",
+                delta_color="inverse" if shock.one_off_costs else "off")
+
+    g = st.columns(3)
+    with g[0]:
+        charts.gauge_chart(baseline.baseline_runway, key=f"gz_b_{account_id}", title="Baseline",
+                           display="120+ mo" if baseline.baseline_runway >= 120 else None)
+    with g[1]:
+        charts.gauge_chart(shock.runway_months, key=f"gz_s_{account_id}", title="Challenge runway (official)",
+                           display="120+ mo" if shock.runway_months >= 120 else None)
+    with g[2]:
+        charts.gauge_chart(shock.adaptive_runway_months, key=f"gz_a_{account_id}", title=f"With ${adjust:,}/mo adjustment",
+                           display="120+ mo" if shock.adaptive_runway_months >= 120 else None)
+
+    # ---------------------------------------------------------------- buffer timeline
+    duration = _timeline_duration(shock, no_shortfall_duration=max(preset.duration_months, 6))
+    proj = project_shock_timeline(baseline, shock, duration_months=duration, adaptive_mode=False)
+    proj_adj = project_shock_timeline(baseline, shock, duration_months=duration, adaptive_mode=True)
+    x1, y1, _, _ = _timeline_series(baseline, shock, proj, shock.monthly_gap, shock.runway_months, "Challenge")
+    x2, y2, _, _ = _timeline_series(baseline, shock, proj_adj, shock.adaptive_gap, shock.adaptive_runway_months, "Adjusted")
+    x_axis = x1 if len(x1) >= len(x2) else x2
+    pad = lambda ys: [round(v, 2) for v in ys] + [None] * (len(x_axis) - len(ys))
+    replay = st.session_state.setdefault(f"replay_{account_id}", 0)
+    head = st.columns([4, 1])
+    head[0].markdown("#### Buffer month by month")
+    if head[1].button("▶ Replay", key=f"replay_btn_{account_id}", use_container_width=True):
+        st.session_state[f"replay_{account_id}"] = replay + 1
+        st.rerun()
+    series = [{"name": "Official challenge scenario", "data": pad(y1), "color": charts.ORANGE, "area": True}]
+    if adjust:
+        series.append({"name": f"With ${adjust:,}/mo adjustment", "data": pad(y2), "color": charts.BLUE, "dashed": True})
+    charts.line_chart(
+        x_axis, series, key=f"tl_{account_id}_{preset_idx}_{replay}", x_name="Month", y_name="Buffer ($)", height=380, zoom=len(x_axis) > 30,
+        subtitle="Holds the simulated monthly gap constant (calculation convention, not a forecast) · hover for each month",
+        mark_lines=[charts.mark_line(0, "Buffer reaches $0", charts.RED)],
     )
 
-    valid_accounts = repo.get_all_accounts()
-    active_id = st.session_state.get("active_account_id", valid_accounts[0])
-    if active_id not in valid_accounts:
-        active_id = valid_accounts[0]
-    if st.session_state.get("shock_account_id") != active_id:
-        st.session_state["shock_account_id"] = active_id
-    account_id = st.selectbox(
-        "Choose an account",
-        options=valid_accounts,
-        format_func=lambda value: f"Account #{value}",
-        key="shock_account_id",
-    )
-    st.session_state["active_account_id"] = account_id
-    monthly_df = repo.get_monthly_summary(account_id)
-    acc_meta = repo.get_account_meta(account_id)
-    if acc_meta is None or monthly_df.empty:
-        st.error("Please select a valid Account ID in the Customer Explorer first.")
-        return
-    baseline = compute_official_baseline(account_id, monthly_df, acc_meta)
-    profile = get_customer_profile(account_id, repo, account_meta=acc_meta, baseline=baseline)
-    if not profile:
-        st.error("Please select a valid Account ID in the Customer Explorer first.")
-        return
+    # ---------------------------------------------------------------- monthly bridge + sensitivity
+    b1, b2 = st.columns([1, 1.25])
+    with b1:
+        charts.bar_chart(
+            ["Money in", "Spending", "Monthly gap", "One-off cost"],
+            [{"name": "Baseline", "data": [baseline.I, baseline.S, max(baseline.gap, 0), 0], "color": charts.GREY},
+             {"name": "This scenario", "data": [shock.income_after_shock, shock.spending_after_shock,
+                                                max(shock.monthly_gap, 0), shock.one_off_costs],
+              "color": charts.ORANGE, "labels": True}],
+            key=f"cmp_{account_id}", x_name="Measure", y_name="Amount per month ($)", money=True, height=380, title="Baseline vs this scenario (per month)",
+            subtitle="Gap shown as 0 when money in covers spending · hover for exact values")
+    with b2:
+        grid: List[List[float]] = []
+        for bp in HEAT_BILLS:
+            row = []
+            for ip in HEAT_INCOME:
+                spend = round(baseline.S + bp / 100 * baseline.H, 2)
+                row.append(calculate_runway_details(baseline.B, round(ip / 100 * baseline.I, 2), spend, shock.one_off_costs)["runway"])
+            grid.append(row)
+        marker = None
+        if income_pct in HEAT_INCOME and bills_pct in HEAT_BILLS:
+            marker = [HEAT_INCOME.index(income_pct), HEAT_BILLS.index(bills_pct)]
+        event = charts.heatmap_chart([f"{v}%" for v in HEAT_INCOME], [f"+{v}%" for v in HEAT_BILLS], grid,
+                                     key=f"heat_{account_id}_{preset_idx}", x_name="Money in kept (%)", y_name="Household bills change (%)", title="Runway sensitivity (months)",
+                                     subtitle="Same one-off cost · white box = current sliders · click a cell to load it", marker=marker, height=380)
+        clicked = new_click(event, f"heat_{account_id}_{preset_idx}")
+        if clicked and isinstance(clicked.get("data"), list):
+            xi, yi = int(clicked["data"][0]), int(clicked["data"][1])
+            st.session_state["_pending_shock"] = {keys["income"]: HEAT_INCOME[xi], keys["bills"]: HEAT_BILLS[yi]}
+            st.rerun()
 
-    # 1. Preset Shock Selection
-    st.markdown("### Choose what to change")
-    scenario_labels = [
-        "🧘 Keep things steady",
-        "📉 Income takes a dip",
-        "🔧 The repair bill arrives",
-        "🎭 Two plot twists at once",
-    ]
-    
-    preset_idx = st.session_state.get("active_preset_idx", 1)  # Default: Twist 1 (EI 55%)
-    if not isinstance(preset_idx, int) or not 0 <= preset_idx < len(OFFICIAL_PRESETS):
-        preset_idx = 1
-
-    preset_idx = st.radio(
-        "Pick a scenario",
-        options=range(len(OFFICIAL_PRESETS)),
-        index=preset_idx,
-        format_func=lambda index: scenario_labels[index],
-        horizontal=True,
-        key="scenario_picker",
-        label_visibility="collapsed",
-    )
-    st.session_state["active_preset_idx"] = preset_idx
-
-    chosen_preset = OFFICIAL_PRESETS[preset_idx]
-    st.info(f"**What we're testing:** {scenario_display_description(chosen_preset)}")
-    st.markdown("[↓ Jump to the buffer timeline](#play-the-what-if)")
-    if preset_idx == 3:
-        st.caption("Because apparently one plot twist wasn't enough.")
-
-    # 2. Interactive Shock Tuning Controls
-    with st.expander("⚙️ Adjust the what-if assumptions", expanded=(preset_idx == 0)):
-        sc_col1, sc_col2, sc_col3, sc_col4 = st.columns(4)
-        with sc_col1:
-            income_pct = st.slider(
-                "Money-in level (usual = 100%)",
-                min_value=0,
-                max_value=150,
-                value=int(chosen_preset.income_multiplier * 100),
-                step=5,
-                key=f"income_pct_{chosen_preset.scenario_id}",
-                help="Sets money coming into the account as a share of its usual level. For example, 55% means 45% less. This is not verified pay or a benefit estimate."
-            ) / 100.0
-        with sc_col2:
-            bill_key = f"bills_pct_{chosen_preset.scenario_id}"
-            if st.session_state.get(bill_key, 0) < 0:
-                st.session_state[bill_key] = 0
-            bills_pct = st.slider(
-                "Household-bill change (%)",
-                min_value=0,
-                max_value=100,
-                value=int(chosen_preset.household_bills_pct * 100),
-                step=5,
-                key=bill_key,
-                help="Changes the recorded household bills. For example, +15% means bills are 15% higher; 0% leaves them unchanged."
-            ) / 100.0
-        with sc_col3:
-            one_off_spend_mult = st.slider(
-                "One-off cost (typical spending months)",
-                min_value=0.0,
-                max_value=3.0,
-                value=float(chosen_preset.one_off_spend_multiplier),
-                step=0.25,
-                key=f"one_off_spend_{chosen_preset.scenario_id}",
-                help="A one-time cost measured in usual monthly spending. For example, 1 means one typical month of spending."
-            )
-        with sc_col4:
-            custom_fixed_cost = st.number_input(
-                "Additional one-time cost ($ CAD)",
-                min_value=0,
-                max_value=50000,
-                value=int(chosen_preset.one_off_fixed_amount),
-                step=500,
-                key=f"one_off_fixed_{chosen_preset.scenario_id}",
-            )
-        duration_months = st.slider(
-            "How many months to show if spending does not exceed money-in",
-            min_value=1,
-            max_value=12,
-            value=chosen_preset.duration_months,
-            key=f"scenario_duration_{chosen_preset.scenario_id}",
-            help="Used when the simulated monthly gap is zero or negative. Otherwise playback continues to the estimated runway, up to the 120-month formula cap.",
-        )
-
-    # Build active scenario object
-    active_scenario = ShockScenario(
-        scenario_id=f"CUSTOM_{chosen_preset.scenario_id}",
-        name=scenario_display_name(chosen_preset),
-        description=scenario_display_description(chosen_preset),
-        income_multiplier=income_pct,
-        household_bills_pct=bills_pct,
-        one_off_spend_multiplier=one_off_spend_mult,
-        one_off_fixed_amount=float(custom_fixed_cost),
-        duration_months=duration_months
+    # ---------------------------------------------------------------- recovery gap
+    target = st.slider("Target runway for the recovery gap", 1, 24, 6, format="%d months", key="tw_target")
+    required = round(max(0.0, shock.monthly_gap - max(shock.buffer_left, 0) / target), 2)
+    st.markdown(
+        f"**Recovery gap (SIMULATED):** to keep the buffer above $0 for {target} months under this scenario, the monthly "
+        f"position must improve by **${required:,.2f}** = max(0, ${shock.monthly_gap:,.2f} − ${max(shock.buffer_left, 0):,.2f} ÷ {target})."
     )
 
-    # Optional adjustment is customer-selected and does not change Judge Match Runway.
-    judge_match_result = simulate_shock(baseline, active_scenario)
-    adjustment_max = max(1, int(judge_match_result.spending_after_shock))
-    st.markdown("### Try a monthly change")
-    monthly_adjustment = st.slider(
-        "Monthly spending change to try ($ CAD)",
-        min_value=0,
-        max_value=adjustment_max,
-        value=0,
-        step=max(1, min(100, adjustment_max // 100 or 1)),
-        key=f"monthly_adjustment_{account_id}_{chosen_preset.scenario_id}",
-        help="Just a what-if amount you choose. We do not decide which spending could be reduced.",
-    )
-    shock_res = simulate_shock(
-        baseline,
-        active_scenario,
-        monthly_spending_adjustment=float(monthly_adjustment),
-    )
-    if shock_res.buffer_left <= 0:
-        runway_calculation = "Runway = 0.0 months because the buffer after the one-off cost is zero or below."
-    elif shock_res.monthly_gap <= 0:
-        runway_calculation = "Runway = 120+ months because the modeled monthly gap is zero or below and the buffer is positive."
-    else:
-        runway_calculation = (
-            f"Runway = min(120, ${shock_res.buffer_left:,.2f} ÷ "
-            f"${shock_res.monthly_gap:,.2f}) = {shock_res.runway_label}"
-        )
-    if shock_res.buffer_left <= 0:
-        optional_runway_calculation = "Optional runway = 0.0 months because the buffer after the one-off cost is zero or below."
-    elif shock_res.adaptive_gap <= 0:
-        optional_runway_calculation = "Optional runway = 120+ months because the adjusted monthly gap is zero or below and the buffer is positive."
-    else:
-        optional_runway_calculation = (
-            f"Optional runway = min(120, ${shock_res.buffer_left:,.2f} ÷ "
-            f"${shock_res.adaptive_gap:,.2f}) = {shock_res.adaptive_runway_label}"
-        )
-
-    st.markdown("---")
-
-    # 3. Before vs After Shock Results
-    st.subheader("📊 What this what-if shows")
-
-    res1, res2, res3, res4 = st.columns(4)
-    with res1:
-        st.metric(
-            "Money in per month",
-            f"${shock_res.income_after_shock:,.2f}",
-            delta=f"${shock_res.income_after_shock - baseline.I:,.2f}",
-            delta_color="normal"
-        )
-    with res2:
-        st.metric(
-            "Spending per month",
-            f"${shock_res.spending_after_shock:,.2f}",
-            delta=f"${shock_res.spending_after_shock - baseline.S:,.2f}",
-            delta_color="inverse"
-        )
-    with res3:
-        st.metric(
-            "Monthly shortfall / surplus",
-            f"${shock_res.monthly_gap:,.2f}",
-            delta="Surplus" if shock_res.monthly_gap <= 0 else "Shortfall",
-            delta_color="inverse" if shock_res.monthly_gap > 0 else "normal"
-        )
-    with res4:
-        st.metric(
-            "Balance after one-time cost",
-            f"${shock_res.buffer_left:,.2f}",
-            delta=f"-${shock_res.one_off_costs:,.2f}" if shock_res.one_off_costs > 0 else "0",
-            delta_color="inverse" if shock_res.one_off_costs > 0 else "off"
-        )
-
-    # 4. Estimated coverage with and without the selected adjustment
-    st.markdown("### How long could the buffer last?")
-    rw_col1, rw_col2 = st.columns(2)
-
-    with rw_col1:
-        st.markdown(f"""
-        <div style="background-color: {THEME['card_bg']}; padding: 20px; border-radius: 8px; border-left: 6px solid {THEME['primary_orange']};">
-            <span style="font-size: 12px; color: {THEME['text_muted']}; text-transform: uppercase;">Estimated buffer coverage</span>
-            <h2 style="color: {THEME['text_main']}; margin: 5px 0;">{shock_res.runway_label}</h2>
-            <p style="font-size: 13px; color: {THEME['text_muted']}; margin-bottom: 0;">
-                Shows how long the remaining balance could cover the modeled monthly shortfall.
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with rw_col2:
-        st.markdown(f"""
-        <div style="background-color: {THEME['card_bg']}; padding: 20px; border-radius: 8px; border-left: 6px solid {THEME['accent_blue']};">
-            <span style="font-size: 12px; color: {THEME['text_muted']}; text-transform: uppercase;">With your monthly change</span>
-            <h2 style="color: {THEME['accent_blue']}; margin: 5px 0;">{shock_res.adaptive_runway_label}</h2>
-            <p style="font-size: 13px; color: {THEME['text_muted']}; margin-bottom: 0;">
-                Tries your ${monthly_adjustment:,.2f}/month input. No category is presumed
-                adjustable. Difference: {shock_res.months_gained_by_adaptation:.1f} months.
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-
-    st.markdown("---")
-
-    with st.expander("🧾 Show the calculation receipt", expanded=True):
-        st.markdown(
-            "Every figure below uses this account's observed monthly summary and the "
-            "scenario settings above. Amounts are rounded to cents before runway is rounded to one decimal."
-        )
-        st.code(
-            "\n".join(
-                [
-                    f"Typical money in (I): median of {baseline.history_months} monthly money_in rows = ${baseline.I:,.2f}",
-                    f"Typical spending (S): median of {baseline.history_months} monthly money_out rows = ${baseline.S:,.2f}",
-                    f"Household bills (H): median of monthly household_bills rows = ${baseline.H:,.2f}",
-                    f"Buffer (B): mean avg_daily_balance over the latest {len(baseline.last_6_months_summary)} rows = ${baseline.B:,.2f}",
-                    f"Simulated money in: ${baseline.I:,.2f} × {income_pct:.2f} = ${shock_res.income_after_shock:,.2f}",
-                    f"Simulated spending: ${baseline.S:,.2f} + ({bills_pct:.2f} × ${baseline.H:,.2f}) = ${shock_res.spending_after_shock:,.2f}",
-                    f"One-off cost: ({one_off_spend_mult:.2f} × ${baseline.S:,.2f}) + ${custom_fixed_cost:,.2f} = ${shock_res.one_off_costs:,.2f}",
-                    f"Monthly gap: ${shock_res.spending_after_shock:,.2f} - ${shock_res.income_after_shock:,.2f} = ${shock_res.monthly_gap:,.2f}",
-                    f"Buffer remaining: ${baseline.B:,.2f} - ${shock_res.one_off_costs:,.2f} = ${shock_res.buffer_left:,.2f}",
-                    runway_calculation,
-                    f"Optional spending = max(0, ${shock_res.spending_after_shock:,.2f} - ${monthly_adjustment:,.2f}) = ${shock_res.adaptive_spending:,.2f}",
-                    f"Optional monthly gap = ${shock_res.adaptive_spending:,.2f} - ${shock_res.income_after_shock:,.2f} = ${shock_res.adaptive_gap:,.2f}",
-                    optional_runway_calculation,
-                ]
-            ),
-            language="text",
-        )
-        st.caption(
-            "Source: this account's monthly records. Money coming in is not verified pay. "
-            "The estimate assumes the monthly shortfall stays the same; it is not a forecast."
-        )
-
-    st.markdown("---")
-    st.subheader("▶ Play the what-if")
-    st.caption(
-        "Watch the one-off cost arrive, then follow the modeled buffer month by month. "
-        "For a positive monthly shortfall, the chart plays through to the calculated runway "
-        "and marks the estimated $0 point. A no-shortfall scenario uses the selected preview "
-        "length. This is a deterministic rehearsal, not a live bank feed."
-    )
-    timeline_duration = _timeline_duration(
-        shock_res,
-        no_shortfall_duration=active_scenario.duration_months,
-    )
-    projection_baseline = project_shock_timeline(
-        baseline, shock_res, duration_months=timeline_duration, adaptive_mode=False
-    )
-    projection_adaptive = project_shock_timeline(
-        baseline, shock_res, duration_months=timeline_duration, adaptive_mode=True
-    )
-    playback_key = f"{account_id}_{chosen_preset.scenario_id}"
-    frame_key = f"timeline_frame_{playback_key}"
-    playing_key = f"timeline_playing_{playback_key}"
-    if st.session_state.get("timeline_context") != (
-        account_id,
-        chosen_preset.scenario_id,
-        timeline_duration,
-        shock_res.buffer_left,
-        shock_res.monthly_gap,
-        shock_res.adaptive_gap,
-    ):
-        st.session_state["timeline_context"] = (
-            account_id,
-            chosen_preset.scenario_id,
-            timeline_duration,
-            shock_res.buffer_left,
-            shock_res.monthly_gap,
-            shock_res.adaptive_gap,
-        )
-        st.session_state[frame_key] = 0
-        st.session_state[playing_key] = False
-
-    play_col, speed_col = st.columns([1, 2])
-    with play_col:
-        if st.session_state.get(playing_key, False):
-            if st.button("⏸ Pause playback", key=f"pause_{playback_key}", type="secondary"):
-                st.session_state[playing_key] = False
-                st.rerun()
-        else:
-            button_label = (
-                "▶ Play again"
-                if st.session_state.get(frame_key, 0) >= timeline_duration
-                else "▶ Play the what-if"
-            )
-            if st.button(button_label, key=f"play_{playback_key}", type="primary"):
-                st.session_state[frame_key] = 0
-                st.session_state[playing_key] = True
-                st.rerun()
-    with speed_col:
-        playback_speed = st.select_slider(
-            "Playback pace",
-            options=["Cinematic", "Steady", "Quick"],
-            value="Cinematic",
-            key=f"playback_speed_{playback_key}",
-        )
-    interval = {"Cinematic": 1.0, "Steady": 0.65, "Quick": 0.3}[playback_speed]
-    live_timeline = st.fragment(
-        run_every=interval if st.session_state.get(playing_key, False) else None,
-    )(_render_timeline_frame)
-    live_timeline(
-        baseline,
-        shock_res,
-        projection_baseline,
-        projection_adaptive,
-        playback_key,
-        frame_key,
-        playing_key,
-    )
-
-    # Survival verdict alert
-    if projection_baseline.survives_full_shock_period:
-        st.success(
-            f"✅ **Scenario-window result:** The starting buffer remains positive through "
-            f"{timeline_duration} months, ending at "
-            f"${projection_baseline.ending_buffer_at_shock_end:,.2f} CAD."
-        )
-    else:
-        st.warning(
-            f"⚠️ **Scenario result:** With these assumptions, the balance reaches "
-            f"zero in Month +{projection_baseline.months_until_depleted}."
-        )
+    # ---------------------------------------------------------------- Snowflake cross-check + receipt
+    with st.expander("Calculation receipt and Snowflake cross-check", expanded=False):
+        sql_result = None
+        if getattr(repo, "is_connected", False):
+            try:
+                sql_result = repo.run_shock_simulation(account_id, income_pct / 100, bills_pct / 100, one_off_mult,
+                                                       float(fixed), float(target))
+            except Exception as error:  # Show, never hide, a backend failure.
+                st.error(f"Snowflake shock function failed: {error}")
+        if sql_result:
+            same = abs(float(sql_result["runway_months"]) - shock.runway_months) < 0.05
+            st.markdown(f"{'✅' if same else '⚠️'} `MART.FN_ACCOUNT_SHOCK` in Snowflake returned "
+                        f"**{float(sql_result['runway_months']):.1f} months** and a required improvement of "
+                        f"**${float(sql_result['required_monthly_improvement']):,.2f}** "
+                        f"({'matches' if same else 'differs from'} the Python engine).")
+        st.code("\n".join([
+            f"I = ${baseline.I:,.2f}   S = ${baseline.S:,.2f}   H = ${baseline.H:,.2f}   B = ${baseline.B:,.2f}",
+            f"money in after shock  = {income_pct}% × ${baseline.I:,.2f} = ${shock.income_after_shock:,.2f}",
+            f"spending after shock  = ${baseline.S:,.2f} + {bills_pct}% × ${baseline.H:,.2f} = ${shock.spending_after_shock:,.2f}",
+            f"one-off cost          = {one_off_mult:.2f} × ${baseline.S:,.2f} + ${fixed:,.2f} = ${shock.one_off_costs:,.2f}",
+            f"buffer left           = ${baseline.B:,.2f} − ${shock.one_off_costs:,.2f} = ${shock.buffer_left:,.2f}",
+            f"monthly gap           = ${shock.spending_after_shock:,.2f} − ${shock.income_after_shock:,.2f} = ${shock.monthly_gap:,.2f}",
+            f"runway                = {_runway_text(shock.runway_months, shock.buffer_left, shock.monthly_gap)}"
+            + (f"  (= min(120, {shock.buffer_left:,.2f} ÷ {shock.monthly_gap:,.2f}))" if shock.buffer_left > 0 and shock.monthly_gap > 0 else ""),
+        ]), language="text")

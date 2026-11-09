@@ -3,6 +3,7 @@ Timeline Projection Engine: Month-by-Month Trajectory & Cash Burn Simulation
 Strictly separated from the official Judge Match Runway formula.
 """
 
+import math
 from dataclasses import dataclass
 from typing import List, Dict, Any, Optional
 import pandas as pd
@@ -83,3 +84,30 @@ def project_shock_timeline(
         trajectory=trajectory,
         survives_full_shock_period=survives
     )
+
+
+def _timeline_duration(shock, no_shortfall_duration: int) -> int:
+    finite_runways = [
+        min(shock.buffer_left / gap, 120.0)
+        for gap in (shock.monthly_gap, shock.adaptive_gap)
+        if shock.buffer_left > 0 and gap > 0
+    ]
+    if finite_runways:
+        return max(1, math.ceil(max(finite_runways)))
+    return 1 if shock.buffer_left <= 0 else no_shortfall_duration
+
+
+def _timeline_series(baseline, shock, projection, gap: float, runway: float, label: str):
+    """Buffer path: before event, after one-off, then month ends; ends at $0 on the runway point."""
+    x_values = ["Before event", "After one-off"]
+    y_values = [baseline.B, shock.buffer_left]
+    raw_runway = shock.buffer_left / gap if shock.buffer_left > 0 and gap > 0 else None
+    depletion_step = math.ceil(raw_runway) if raw_runway is not None else None
+    if raw_runway is not None and raw_runway <= 120:
+        points = projection.trajectory[: depletion_step - 1]
+        x_values += [p.month_name for p in points] + [f"{label} runway · {runway:.1f} mo"]
+        y_values += [p.ending_buffer for p in points] + [0.0]
+    else:
+        x_values += [p.month_name for p in projection.trajectory]
+        y_values += [p.ending_buffer for p in projection.trajectory]
+    return x_values, y_values, raw_runway, depletion_step
