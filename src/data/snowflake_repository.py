@@ -37,7 +37,7 @@ class SnowflakeDataRepository(LocalDataRepository):
 
     def __init__(self, connection_name: Optional[str] = None):
         super().__init__()
-        self.connection_name = connection_name or os.getenv("SNOWFLAKE_CONNECTION_NAME", "default")
+        self.connection_name = connection_name or os.getenv("SNOWFLAKE_CONNECTION_NAME", "datathon")
         self._conn = None
         self.is_connected = False
         self.connection_error: Optional[str] = None
@@ -60,27 +60,95 @@ class SnowflakeDataRepository(LocalDataRepository):
     def _connect(self):
         import snowflake.connector
 
-        try:
-            self._conn = snowflake.connector.connect(
-                connection_name=self.connection_name,
-                database=SNOWFLAKE_DATABASE,
-                warehouse=SNOWFLAKE_WAREHOUSE,
-                client_session_keep_alive=True,
-            )
-        except Exception as local_error:
-            # Hosted in Streamlit in Snowflake: no connections.toml, the platform supplies the session.
-            try:
-                import streamlit as st
+        last_error = None
 
-                self._conn = st.connection("snowflake").raw_connection
-            except Exception:
-                raise local_error
+        # 1. Try Streamlit Secrets (for Streamlit Community Cloud)
+        try:
+            import streamlit as st
+
+            sec = None
+            if hasattr(st, "secrets"):
+                if "connections" in st.secrets and "snowflake" in st.secrets["connections"]:
+                    sec = dict(st.secrets["connections"]["snowflake"])
+                elif "snowflake" in st.secrets:
+                    sec = dict(st.secrets["snowflake"])
+
+            if sec:
+                account = sec.get("account")
+                user = sec.get("user") or sec.get("username")
+                password = sec.get("password")
+                role = sec.get("role", "ACCOUNTADMIN")
+                warehouse = sec.get("warehouse", SNOWFLAKE_WAREHOUSE)
+                database = sec.get("database", SNOWFLAKE_DATABASE)
+                schema = sec.get("schema", "APP")
+                self._conn = snowflake.connector.connect(
+                    account=account,
+                    user=user,
+                    password=password,
+                    role=role,
+                    warehouse=warehouse,
+                    database=database,
+                    schema=schema,
+                    client_session_keep_alive=True,
+                )
+                return
+        except Exception as e:
+            last_error = e
+
+        # 2. Try native Streamlit in Snowflake session (st.connection("snowflake"))
+        try:
+            import streamlit as st
+
+            self._conn = st.connection("snowflake").raw_connection
             cur = self._conn.cursor()
             try:
                 cur.execute(f"USE DATABASE {SNOWFLAKE_DATABASE}")
                 cur.execute(f"USE WAREHOUSE {SNOWFLAKE_WAREHOUSE}")
             finally:
                 cur.close()
+            return
+        except Exception as e:
+            last_error = e
+
+        # 3. Try explicit environment variables
+        if os.getenv("SNOWFLAKE_ACCOUNT") and os.getenv("SNOWFLAKE_USER") and os.getenv("SNOWFLAKE_PASSWORD"):
+            try:
+                self._conn = snowflake.connector.connect(
+                    account=os.getenv("SNOWFLAKE_ACCOUNT"),
+                    user=os.getenv("SNOWFLAKE_USER"),
+                    password=os.getenv("SNOWFLAKE_PASSWORD"),
+                    role=os.getenv("SNOWFLAKE_ROLE", "ACCOUNTADMIN"),
+                    warehouse=os.getenv("SNOWFLAKE_WAREHOUSE", SNOWFLAKE_WAREHOUSE),
+                    database=os.getenv("SNOWFLAKE_DATABASE", SNOWFLAKE_DATABASE),
+                    schema=os.getenv("SNOWFLAKE_SCHEMA", "APP"),
+                    client_session_keep_alive=True,
+                )
+                return
+            except Exception as e:
+                last_error = e
+
+        # 4. Try named connections from Snowflake CLI (config.toml / connections.toml)
+        conn_names = []
+        if self.connection_name:
+            conn_names.append(self.connection_name)
+        for name in ["datathon", "default"]:
+            if name not in conn_names:
+                conn_names.append(name)
+
+        for c_name in conn_names:
+            try:
+                self._conn = snowflake.connector.connect(
+                    connection_name=c_name,
+                    database=SNOWFLAKE_DATABASE,
+                    warehouse=SNOWFLAKE_WAREHOUSE,
+                    client_session_keep_alive=True,
+                )
+                return
+            except Exception as e:
+                last_error = e
+
+        if last_error:
+            raise last_error
 
     def query(self, sql: str, params: Optional[tuple] = None) -> pd.DataFrame:
         cur = self._conn.cursor()

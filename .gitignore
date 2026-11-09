@@ -37,3 +37,7 @@ wheels/
 # OS files
 .DS_Store
 Thumbs.db
+
+# Lockfiles and secrets
+uv.lock
+.streamlit/secrets.toml

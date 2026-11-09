@@ -1,6 +1,7 @@
 # Resilience Rewired - Financial Resilience Platform Dependencies
 streamlit>=1.53.0
-streamlit-echarts==0.7.0
+streamlit-echarts>=0.7.0
 pandas>=2.0.0
 numpy>=1.24.0
+snowflake-connector-python[pandas]>=3.12.0
 pytest>=8.0.0
