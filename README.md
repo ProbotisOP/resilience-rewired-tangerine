@@ -2,6 +2,8 @@
 
 **CTRL + ALT + WIN · Sheridan Datathon 2026 · Tangerine track**
 
+### LIVE DEMO : https://resilience-rewired-tangerine.streamlit.app/
+
 Resilience Rewired is a financial-resilience copilot for a bank, built natively on Snowflake. It answers one question for
 every customer: **if money in drops tomorrow, how many months can they last, and what would it take to get back to
 safety?** It combines the challenge's deterministic runway formula with Snowflake ML, Cortex AI and an interactive
